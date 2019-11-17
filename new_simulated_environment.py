@@ -23,6 +23,7 @@ class e_trajectory_simENV(gym.Env):
     """
 
     def __init__(self, **kwargs):
+        self.current_action = None
         self.initial_conditions = []
         self.__version__ = "0.0.1"
         logging.info("e_trajectory_simENV - Version {}".format(self.__version__))
@@ -57,7 +58,8 @@ class e_trajectory_simENV(gym.Env):
         # golden_data = pd.read_hdf('golden.h5')
         # self.goldenH = 1e-3*golden_data.describe().loc['mean'].values
         # print(self.goldenH)
-        self.goldenH = np.zeros(len(self.bpmsH.elements))
+        self.goldenH = np.zeros(len(self.bpmsV.elements))
+        # self.goldenH =0.005*np.ones(len(self.bpmsH.elements))
         self.goldenV = np.zeros(len(self.bpmsV.elements))
 
         self.plane = Plane.horizontal
@@ -79,9 +81,9 @@ class e_trajectory_simENV(gym.Env):
             self.action_scale = 5e-4
         # print('selected scale at: ', self.action_scale)
 
-        self.state_scale = 1000  # Meters to millimeters as given from BPMs in the measurement later on
-        self.reward_scale = 1000  # Important
-
+        self.state_scale = 100  # Meters to millimeters as given from BPMs in the measurement later on
+        self.reward_scale = 100  # Important
+        self.threshold = -0.1
         # self.TOTAL_COUNTER = -1
 
     def step(self, action, reference_position=None):
@@ -98,9 +100,12 @@ class e_trajectory_simENV(gym.Env):
         # To finish the episode if reward is sufficient
         # Rescale to fit millimeter reward
         return_reward = reward * self.reward_scale
+
         self.rewards[self.current_episode].append(return_reward)
+
+        # state = state - self.goldenH
         return_state = np.array(state * self.state_scale)
-        if (return_reward > -0.75 or return_reward < -10):
+        if (return_reward > self.threshold or return_reward < -5):
             self.is_finalized = True
             if return_reward < -10:
                 reward = -99
@@ -124,15 +129,20 @@ class e_trajectory_simENV(gym.Env):
 
     def _take_action(self, action):
         # The action is scaled here for the communication with the hardware
-        kicks = action * self.action_scale
+        if self.current_action is None:
+            kicks = action * self.action_scale
+            self.current_action = action
+        else:
+            kicks = (action-self.current_action) * self.action_scale
+            self.current_action = action
+        kicks += 0.01*np.random.randn(self.action_space.shape[0]) * self.action_scale
         # Apply the kicks...
-
         state, reward = self._get_state_and_reward(kicks, self.plane)
-
+        state += 0.00*np.random.randn(self.observation_space.shape[0])
         return state, reward
 
     def _get_reward(self, golden, trajectory):
-        rms = np.sqrt(np.mean(np.square(trajectory - golden)))
+        rms = np.sqrt(np.mean(np.square(trajectory)))
         return (rms * (-1.))
 
     def _get_state_and_reward(self, kicks, plane):
@@ -148,6 +158,7 @@ class e_trajectory_simENV(gym.Env):
             golden = self.goldenV
 
         state = self._calculate_trajectory(init_positions, rmatrix, kicks)
+        state -= self.goldenH
         reward = self._get_reward(golden, state)
         return state, reward
 
@@ -163,7 +174,6 @@ class e_trajectory_simENV(gym.Env):
                         (bpm.mu - corrector.mu) * 2. * math.pi)
                 else:
                     rmatrix[i][j] = 0.0
-
         return rmatrix
 
     def _calculate_trajectory(self, initial_pos, rmatrix, delta_settings):
@@ -180,11 +190,10 @@ class e_trajectory_simENV(gym.Env):
         observation (object): the initial observation of the space.
         """
         simulation = False
-
         self.is_finalized = False
 
         if (self.plane == Plane.horizontal):
-            self.settingsH = np.clip(2 * np.random.randn(len(self.settingsH)), -self.act_lim, self.act_lim)
+            self.settingsH = np.clip(4 * np.random.randn(len(self.settingsH)), -self.act_lim, self.act_lim)
             # self.settingsH = (np.random.uniform(-2, 2, self.action_space.shape[0]))
             kicks = self.settingsH * self.action_scale
         if (self.plane == Plane.vertical):
@@ -206,7 +215,7 @@ class e_trajectory_simENV(gym.Env):
             # print('init simulation...')
             return_value =  kicks
         else:
-            print('init')
+            # print('init')
             self.current_episode += 1
             self.current_steps = 0
             self.action_episode_memory.append([])
@@ -220,6 +229,7 @@ class e_trajectory_simENV(gym.Env):
                 self.positionsV = state
 
             # Rescale for agent
+            # state = state
             return_initial_state = np.array(state * self.state_scale)
             self.initial_conditions.append([return_initial_state])
             return_value = return_initial_state
@@ -246,7 +256,7 @@ if __name__ == '__main__':
     def objective(action):
         actions.append(action.copy())
         _, r, _, _ = environment_instance.step(action=action)
-        rews.append(r*1e1)
+        rews.append(r*1e0)
         return -r
 
 
@@ -264,9 +274,10 @@ if __name__ == '__main__':
 
         print('init: ', environment_instance.reset())
         start_vector = np.zeros(environment_instance.action_space.shape[0])
-        rhobeg = 0.5 * environment_instance.action_space.high[0]
+        rhobeg = 1 * environment_instance.action_space.high[0]
         print('rhobeg: ', rhobeg)
-        print(opt.fmin_cobyla(objective, start_vector, [constr], rhobeg=rhobeg, rhoend=.1))
+        res = opt.fmin_cobyla(objective, start_vector, [constr], rhobeg=rhobeg, rhoend=.1)
+        print(res)
 
     if False:
         # Bounded region of parameter space

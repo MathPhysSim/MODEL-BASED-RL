@@ -16,7 +16,7 @@ from numpy import matrix
 # filename_Q20 = '/Users/vkain/cernbox/CERN_dfs/SPS/twisses/twiss_Q20'
 # filename_Q22 = '/Users/vkain/cernbox/CERN_dfs/SPS/twisses/twiss_Q22'
 
-filename_awakeElectron = '../InfrastructuralData/electron_tt43.out'
+filename_awakeElectron = 'electron_tt43.out'
 
 # type_monitor = 'M'
 # type_kicker = 'K'
@@ -332,10 +332,10 @@ def readTwissFromMADX(inputFile, name=''):
 
 def readAWAKEelectronTwiss():
     try:
-        filename_awakeElectron = '../InfrastructuralData/electron_tt43.out'
+        filename_awakeElectron = 'Application/electron_tt43.out'
         twissH, twissV = readTwissFromMADX(filename_awakeElectron)
     except:
-        filename_awakeElectron = 'InfrastructuralData/electron_tt43.out'
+        filename_awakeElectron = 'Application/electron_tt43.out'
         twissH, twissV = readTwissFromMADX(filename_awakeElectron)
     return twissH, twissV
 

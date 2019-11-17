@@ -4,7 +4,8 @@ import gym
 from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
-rms_threshold = 0.75
+
+
 
 element_actor_list = ['rmi://virtual_awake/logical.RCIBH.430029/K',
                       'rmi://virtual_awake/logical.RCIBH.430040/K',
@@ -63,10 +64,14 @@ if simulation:
 else:
     from awake_environment_machine import awakeEnv
 
+
+
 reference_position = np.zeros(len(element_state_list_selected))
 
 env = awakeEnv(action_space=element_actor_list_selected, state_space=element_state_list_selected,
                number_bpm_measurements=number_bpm_measurements, noSet=False, debug=True, scale=1e-4)
+
+rms_threshold = env.threshold
 
 def make_env():
     # env.seed(123)
@@ -334,7 +339,6 @@ def simulate_environment(env, policy, simulated_steps):
 
 class NetworkEnv(gym.Wrapper):
     def __init__(self, env, model_func, reward_func, done_func, number_models):
-
         gym.Wrapper.__init__(self, env)
 
         self.model_func = model_func
@@ -347,7 +351,8 @@ class NetworkEnv(gym.Wrapper):
         self.len_episode = 0
         kwargs['simulation'] = True
         action = self.env.reset(**kwargs)
-        self.obs =  self.model_func(np.zeros(env.observation_space.shape[0]), [np.squeeze(action)], np.random.randint(0, self.number_models))
+        self.obs = self.model_func(np.zeros(env.observation_space.shape[0]), [np.squeeze(action)],
+                                   np.random.randint(0, self.number_models))
         return self.obs
 
     def step(self, action):
@@ -590,7 +595,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
     # computational graph of N models
     for i in range(num_ensemble_models):
         with tf.variable_scope('model_' + str(i) + '_nn'):
-            nobs_pred = mlp(act_obs, [32,32], obs_dim[0], tf.nn.relu, last_activation=None)
+            nobs_pred = mlp(act_obs, [32, 32], obs_dim[0], tf.nn.relu, last_activation=None)
             nobs_pred_m.append(nobs_pred)
 
         m_loss = tf.reduce_mean((nobs_ph - nobs_pred) ** 2)
@@ -839,7 +844,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
 
                 act = np.squeeze(act)
 
-                # take a step in the environment
+                # take a step in the real environment
                 obs2, rew, done, _ = env.step(np.array(act))
 
                 # add the new transition to the temporary buffer
@@ -877,8 +882,11 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
         ###################### POLICY LEARNING ######################
         ############################################################
 
-        best_sim_test = -2*np.ones(num_ensemble_models)
-        for it in range(15):
+        # depends on the threshold
+        # TODO: Modified code by Simon
+        best_sim_test = -2 * np.ones(num_ensemble_models)
+
+        for it in range(80):
             print('\t Policy it', it, end='.. ')
             ##################### MODEL SIMLUATION #####################
             obs_batch, act_batch, adv_batch, rtg_batch = simulate_environment(sim_env, action_op_noise, simulated_steps)
@@ -887,6 +895,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             policy_update(obs_batch, act_batch, adv_batch, rtg_batch)
 
             # Testing the policy on a real environment
+            # TODO: Add to buffer
             mn_test, mn_test_std = test_agent(env_test, action_op, num_games=10)
             print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2))
 
@@ -896,7 +905,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             file_writer.flush()
 
             # Test the policy on simulated environment.
-            if (it + 1) % 1 == 0:
+            if (it + 1) % 5 == 0:
                 print('Simulated test:', end=' -- ')
                 sim_rewards = []
 
@@ -921,6 +930,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
         env.close()
     file_writer.close()
 
+
 def plot_results(env, label):
     # plotting
     print('now plotting')
@@ -943,14 +953,14 @@ def plot_results(env, label):
 
     fig, axs = plt.subplots(2, 1, constrained_layout=True)
 
-    ax=axs[0]
+    ax = axs[0]
     ax.plot(iterations)
     ax.set_title('Iterations' + plot_suffix)
     fig.suptitle(label, fontsize=12)
 
     ax = axs[1]
     color = 'blue'
-    ax.set_ylabel('Initial RMS', color=color)  # we already handled the x-label with ax1
+    ax.set_ylabel('Final RMS', color=color)  # we already handled the x-label with ax1
     ax.tick_params(axis='y', labelcolor=color)
     ax.plot(finals, color=color)
 
@@ -959,21 +969,26 @@ def plot_results(env, label):
 
     ax1 = plt.twinx(ax)
     color = 'lime'
-    ax1.set_ylabel('Final RMS', color=color)  # we already handled the x-label with ax1
+    ax1.set_ylabel('Initial RMS', color=color)  # we already handled the x-label with ax1
     ax1.tick_params(axis='y', labelcolor=color)
     ax1.plot(starts, color=color)
 
     ax.set_ylim(ax1.get_ylim())
-    plt.savefig(label+'.pdf')
+    plt.savefig(label + '.pdf')
+    plt.savefig(label + '.png')
     # fig.tight_layout()
     plt.show()
 
 
 if __name__ == '__main__':
-    METRPO('', hidden_sizes=[16, 16], cr_lr=1e-3, gamma=0.99, lam=0.95, num_epochs=3,
-           steps_per_env=50,
-           number_envs=1, critic_iter=15, delta=0.5, algorithm='TRPO', conj_iters=15, minibatch_size=100,
+    # set random seed
+    random_seed = 123
+    tf.set_random_seed(random_seed)
+    np.random.seed(random_seed)
+    METRPO('', hidden_sizes=[16, 16], cr_lr=1e-3, gamma=0.9999, lam=0.95, num_epochs=2,
+           steps_per_env=100,
+           number_envs=1, critic_iter=15, delta=0.5, algorithm='TRPO', conj_iters=15, minibatch_size=1000,
            mb_lr=0.0001, model_batch_size=100, simulated_steps=10000, num_ensemble_models=10, model_iter=15)
     # plot the results
 
-    plot_results(env, 'ME-TRPO')
+    plot_results(env, 'ME-TRPO on AWAKE')
