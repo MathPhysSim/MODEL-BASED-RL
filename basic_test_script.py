@@ -182,7 +182,7 @@ if __name__ == '__main__':
     learning_rate = 1e-3
     max_steps = 200
     update_repeat = 10
-    max_episodes = 2000
+    max_episodes = 500
     tau = 1 - 0.999
     is_train = True
     is_continued = False
@@ -190,7 +190,7 @@ if __name__ == '__main__':
     nafnet_kwargs = dict(hidden_sizes=[32, 32], activation=tf.nn.tanh
                          , weight_init=tf.random_uniform_initializer(-0.05, 0.05))
 
-    prio_info = dict(alpha=.8, beta=.2)
+    prio_info = dict(alpha=.5, beta=.5)
 
     # filename = 'Scan_data.obj'
     # filehandler = open(filename, 'rb')

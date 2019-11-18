@@ -135,7 +135,7 @@ class e_trajectory_simENV(gym.Env):
         else:
             kicks = (action-self.current_action) * self.action_scale
             self.current_action = action
-        kicks += 0.01*np.random.randn(self.action_space.shape[0]) * self.action_scale
+        kicks += 0.075*np.random.randn(self.action_space.shape[0]) * self.action_scale
         # Apply the kicks...
         state, reward = self._get_state_and_reward(kicks, self.plane)
         state += 0.00*np.random.randn(self.observation_space.shape[0])

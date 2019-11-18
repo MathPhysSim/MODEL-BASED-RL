@@ -198,7 +198,7 @@ def flatten(tensor):
     return tf.reshape(tensor, shape=(-1,))
 
 
-def test_agent(env_test, agent_op, num_games=10):
+def test_agent(env_test, agent_op, num_games=10, model_buffer=False):
     '''
     Test an agent 'agent_op', 'num_games' times
     Return mean and std
@@ -210,10 +210,14 @@ def test_agent(env_test, agent_op, num_games=10):
         o = env_test.reset()
 
         while not d:
+            o0 = o.copy()
             a_s, _ = agent_op([o])
             o, r, d, _ = env_test.step(a_s)
             game_r += r
-
+            if model_buffer:
+                # add the new transition to the temporary buffer
+                # print(o0, a_s, r, o, d)
+                model_buffer.store(o0, a_s[0], r, o.copy(), d)
         games_r.append(game_r)
     return np.mean(games_r), np.std(games_r)
 
@@ -403,7 +407,7 @@ class StructEnv(gym.Wrapper):
 
 def episode_done(ob):
     # return np.abs(np.arcsin(np.squeeze(ob[3]))) > .2
-    return np.sqrt(np.mean(np.square(ob))) < rms_threshold
+    return (np.sqrt(np.mean(np.square(ob))) < rms_threshold) or(np.sqrt(np.mean(np.square(ob))) >-2)
 
 
 def final_reward(ob, ac):
@@ -833,7 +837,9 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             env.reset()
 
             # iterate over a fixed number of steps
-            for _ in range(steps_per_env):
+            # TODO: Changed
+            rest_steps = max(0, steps_per_env-len(model_buffer))
+            for _ in range(rest_steps):
                 # run the policy
 
                 if ep == 0:
@@ -886,7 +892,8 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
         # TODO: Modified code by Simon
         best_sim_test = -2 * np.ones(num_ensemble_models)
 
-        for it in range(80):
+        for it in range(10):
+            print('length is:', len(model_buffer))
             print('\t Policy it', it, end='.. ')
             ##################### MODEL SIMLUATION #####################
             obs_batch, act_batch, adv_batch, rtg_batch = simulate_environment(sim_env, action_op_noise, simulated_steps)
@@ -895,8 +902,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             policy_update(obs_batch, act_batch, adv_batch, rtg_batch)
 
             # Testing the policy on a real environment
-            # TODO: Add to buffer
-            mn_test, mn_test_std = test_agent(env_test, action_op, num_games=10)
+            mn_test, mn_test_std = test_agent(env_test, action_op, num_games=1, model_buffer=model_buffer)
             print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2))
 
             summary = tf.Summary()
@@ -905,7 +911,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             file_writer.flush()
 
             # Test the policy on simulated environment.
-            if (it + 1) % 5 == 0:
+            if it>0:#(it + 1) % 1 == 0:
                 print('Simulated test:', end=' -- ')
                 sim_rewards = []
 
@@ -924,7 +930,9 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                     break
                 else:
                     best_sim_test = sim_rewards
-
+    # Testing the policy on a real environment
+    mn_test, mn_test_std = test_agent(env_test, action_op, num_games=30)
+    print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2))
     # closing environments..
     for env in envs:
         env.close()
@@ -956,6 +964,7 @@ def plot_results(env, label):
     ax = axs[0]
     ax.plot(iterations)
     ax.set_title('Iterations' + plot_suffix)
+
     fig.suptitle(label, fontsize=12)
 
     ax = axs[1]
@@ -969,6 +978,7 @@ def plot_results(env, label):
 
     ax1 = plt.twinx(ax)
     color = 'lime'
+    ax1.axhline(env.threshold, ls=':',c='r')
     ax1.set_ylabel('Initial RMS', color=color)  # we already handled the x-label with ax1
     ax1.tick_params(axis='y', labelcolor=color)
     ax1.plot(starts, color=color)
@@ -985,10 +995,10 @@ if __name__ == '__main__':
     random_seed = 123
     tf.set_random_seed(random_seed)
     np.random.seed(random_seed)
-    METRPO('', hidden_sizes=[16, 16], cr_lr=1e-3, gamma=0.9999, lam=0.95, num_epochs=2,
-           steps_per_env=100,
-           number_envs=1, critic_iter=15, delta=0.5, algorithm='TRPO', conj_iters=15, minibatch_size=1000,
-           mb_lr=0.0001, model_batch_size=100, simulated_steps=10000, num_ensemble_models=10, model_iter=15)
-    # plot the results
+    METRPO('', hidden_sizes=[100,100], cr_lr=1e-3, gamma=0.9999, lam=0.95, num_epochs=1,
+           steps_per_env=50,
+           number_envs=1, critic_iter=15, delta=.1, algorithm='TRPO', conj_iters=15, minibatch_size=10,
+           mb_lr=0.0001, model_batch_size=100, simulated_steps=15000, num_ensemble_models=5, model_iter=15)
 
+    # plot the results
     plot_results(env, 'ME-TRPO on AWAKE')
