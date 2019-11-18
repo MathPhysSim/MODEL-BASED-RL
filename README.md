@@ -5,4 +5,4 @@
 
 NAF| ME-TRPO
 ------------ | -------------
-![Image of NAF](NAFon_AWAKE.png)|![Image of METRPO](ME-TRPO on AWAKE.png)
+![Image of NAF](NAFon_AWAKE.png)|![Image of METRPO](ME-TRPO_on_AWAKE.png)
