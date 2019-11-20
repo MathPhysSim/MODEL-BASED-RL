@@ -838,7 +838,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
 
             # iterate over a fixed number of steps
             # TODO: Changed
-            rest_steps = max(0, steps_per_env-len(model_buffer))
+            rest_steps = max(0, (ep+1)*steps_per_env-len(model_buffer))
             for _ in range(rest_steps):
                 # run the policy
 
@@ -892,7 +892,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
         # TODO: Modified code by Simon
         best_sim_test = -2 * np.ones(num_ensemble_models)
 
-        for it in range(10):
+        for it in range(80):
             print('length is:', len(model_buffer))
             print('\t Policy it', it, end='.. ')
             ##################### MODEL SIMLUATION #####################
@@ -992,13 +992,13 @@ def plot_results(env, label):
 
 if __name__ == '__main__':
     # set random seed
-    random_seed = 123
+    random_seed = 888
     tf.set_random_seed(random_seed)
     np.random.seed(random_seed)
     METRPO('', hidden_sizes=[100,100], cr_lr=1e-3, gamma=0.9999, lam=0.95, num_epochs=1,
            steps_per_env=50,
-           number_envs=1, critic_iter=15, delta=.1, algorithm='TRPO', conj_iters=15, minibatch_size=10,
-           mb_lr=0.0001, model_batch_size=100, simulated_steps=15000, num_ensemble_models=5, model_iter=15)
+           number_envs=1, critic_iter=15, delta=0.01, algorithm='TRPO', conj_iters=15, minibatch_size=200,
+           mb_lr=0.0001, model_batch_size=100, simulated_steps=1500, num_ensemble_models=5, model_iter=15)
 
     # plot the results
     plot_results(env, 'ME-TRPO on AWAKE')

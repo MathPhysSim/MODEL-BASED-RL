@@ -85,6 +85,7 @@ class e_trajectory_simENV(gym.Env):
         self.reward_scale = 100  # Important
         self.threshold = -0.1
         # self.TOTAL_COUNTER = -1
+        self.stored_action = None
 
     def step(self, action, reference_position=None):
 
@@ -105,7 +106,7 @@ class e_trajectory_simENV(gym.Env):
 
         # state = state - self.goldenH
         return_state = np.array(state * self.state_scale)
-        if (return_reward > self.threshold or return_reward < -5):
+        if (return_reward > self.threshold or return_reward < 10*self.threshold):
             self.is_finalized = True
             if return_reward < -10:
                 reward = -99
@@ -128,14 +129,25 @@ class e_trajectory_simENV(gym.Env):
         np.random.seed(seed)
 
     def _take_action(self, action):
-        # The action is scaled here for the communication with the hardware
-        if self.current_action is None:
-            kicks = action * self.action_scale
-            self.current_action = action
+        if self.stored_action is None:
+            self.stored_action = action
+            set_action = action
         else:
-            kicks = (action-self.current_action) * self.action_scale
-            self.current_action = action
-        kicks += 0.075*np.random.randn(self.action_space.shape[0]) * self.action_scale
+            if np.random.uniform()<.0:
+                set_action = self.stored_action
+                print('stuck')
+            else:
+                set_action = action
+                self.stored_action = action
+        # The action is scaled here for the communication with the hardware
+        # if self.current_action is None:
+        #     kicks = action * self.action_scale
+        #     self.current_action = action
+        # else:
+        #     kicks = (action-self.current_action) * self.action_scale
+        #     self.current_action = action
+        kicks = set_action * self.action_scale
+        kicks += 0.1*np.random.randn(self.action_space.shape[0]) * self.action_scale
         # Apply the kicks...
         state, reward = self._get_state_and_reward(kicks, self.plane)
         state += 0.00*np.random.randn(self.observation_space.shape[0])
@@ -224,13 +236,12 @@ class e_trajectory_simENV(gym.Env):
 
             if (self.plane == Plane.horizontal):
                 self.positionsH = state
-
             if (self.plane == Plane.vertical):
                 self.positionsV = state
-
             # Rescale for agent
             # state = state
             return_initial_state = np.array(state * self.state_scale)
+
             self.initial_conditions.append([return_initial_state])
             return_value = return_initial_state
 
