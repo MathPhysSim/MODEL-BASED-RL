@@ -60,7 +60,7 @@ element_state_list_selected = pd.Series(element_state_list[:11])
 number_bpm_measurements = 30
 simulation = True
 if simulation:
-    from new_simulated_environment import e_trajectory_simENV as awakeEnv
+    from simulated_environment import e_trajectory_simENV as awakeEnv
 else:
     from awake_environment_machine import awakeEnv
 
@@ -599,7 +599,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
     # computational graph of N models
     for i in range(num_ensemble_models):
         with tf.variable_scope('model_' + str(i) + '_nn'):
-            nobs_pred = mlp(act_obs, [32, 32], obs_dim[0], tf.nn.relu, last_activation=None)
+            nobs_pred = mlp(act_obs, [50, 50], obs_dim[0], tf.nn.relu, last_activation=None)
             nobs_pred_m.append(nobs_pred)
 
         m_loss = tf.reduce_mean((nobs_ph - nobs_pred) ** 2)
@@ -837,8 +837,9 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             env.reset()
 
             # iterate over a fixed number of steps
-            # TODO: Changed
+            # TODO: Changed to rest
             rest_steps = max(0, (ep+1)*steps_per_env-len(model_buffer))
+            rest_steps = max(0, (ep + 1) * steps_per_env - len(model_buffer))
             for _ in range(rest_steps):
                 # run the policy
 
@@ -902,7 +903,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             policy_update(obs_batch, act_batch, adv_batch, rtg_batch)
 
             # Testing the policy on a real environment
-            mn_test, mn_test_std = test_agent(env_test, action_op, num_games=1, model_buffer=model_buffer)
+            mn_test, mn_test_std = test_agent(env_test, action_op, num_games=20, model_buffer=model_buffer)
             print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2))
 
             summary = tf.Summary()
@@ -995,10 +996,10 @@ if __name__ == '__main__':
     random_seed = 888
     tf.set_random_seed(random_seed)
     np.random.seed(random_seed)
-    METRPO('', hidden_sizes=[100,100], cr_lr=1e-3, gamma=0.9999, lam=0.95, num_epochs=1,
+    METRPO('', hidden_sizes=[100,100], cr_lr=1e-3, gamma=0.9999, lam=0.95, num_epochs=20,
            steps_per_env=50,
-           number_envs=1, critic_iter=15, delta=0.01, algorithm='TRPO', conj_iters=15, minibatch_size=200,
-           mb_lr=0.0001, model_batch_size=100, simulated_steps=1500, num_ensemble_models=5, model_iter=15)
+           number_envs=1, critic_iter=15, delta=0.05, algorithm='TRPO', conj_iters=15, minibatch_size=200,
+           mb_lr=0.0001, model_batch_size=100, simulated_steps=2000, num_ensemble_models=5, model_iter=15)
 
     # plot the results
     plot_results(env, 'ME-TRPO on AWAKE')

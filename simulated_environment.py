@@ -78,14 +78,14 @@ class e_trajectory_simENV(gym.Env):
         if 'scale' in kwargs:
             self.action_scale = kwargs.get('scale')
         else:
-            self.action_scale = 5e-4
+            self.action_scale = 1e-3
         # print('selected scale at: ', self.action_scale)
+        self.kicks_0 = np.zeros(len(self.correctorsH.elements))
 
         self.state_scale = 100  # Meters to millimeters as given from BPMs in the measurement later on
         self.reward_scale = 100  # Important
-        self.threshold = -0.001 * self.reward_scale
+        self.threshold = 0.002 * self.reward_scale
         # self.TOTAL_COUNTER = -1
-        self.stored_action = None
 
     def step(self, action, reference_position=None):
 
@@ -106,14 +106,13 @@ class e_trajectory_simENV(gym.Env):
 
         # state = state - self.goldenH
         return_state = np.array(state * self.state_scale)
-        if (return_reward > self.threshold or return_reward < 10*self.threshold):
+        if (return_reward > self.threshold) or (return_reward < 15*self.threshold):
             self.is_finalized = True
-            # if return_reward < -10:
-            #     reward = -99
+            #if return_reward < -10:
+            #   reward = -99
             # print('Finished at reward of:', reward, ' total episode nr.: ', self.current_episode)
             # print(action, return_state, return_reward)
         # print('Total interaction :', self.TOTAL_COUNTER)
-
         return return_state, return_reward, self.is_finalized, {}
 
     def setGolden(self, goldenH, goldenV):
@@ -130,33 +129,22 @@ class e_trajectory_simENV(gym.Env):
         np.random.seed(seed)
 
     def _take_action(self, action):
-        # if self.stored_action is None:
-        #     self.stored_action = action
-        #     set_action = action
-        # else:
-        #     if np.random.uniform()<.0:
-        #         set_action = self.stored_action
-        #         print('stuck')
-        #     else:
-        #         set_action = action
-        #         self.stored_action = action
         # The action is scaled here for the communication with the hardware
-        if self.current_action is None:
-            kicks = action * self.action_scale - self.k0
-            self.current_action = action
-        else:
-            kicks = (action-self.current_action) * self.action_scale
-            self.current_action = action
+        # if self.current_action is None:
+        #     kicks = action * self.action_scale
+        #     self.current_action = action
+        # else:
+        #     kicks = (action-self.current_action) * self.action_scale
+        #     self.current_action = action
 
-        # kicks = set_action * self.action_scale
-
-        # kicks += 0.1*np.random.randn(self.action_space.shape[0]) * self.action_scale
+        kicks = action * self.action_scale
+        #kicks += 0.075*np.random.randn(self.action_space.shape[0]) * self.action_scale
         # Apply the kicks...
         state, reward = self._get_state_and_reward(kicks, self.plane)
-        # state += 0.1*np.random.randn(self.observation_space.shape[0])
+        state += 0.000*np.random.randn(self.observation_space.shape[0])
         return state, reward
 
-    def _get_reward(self, golden, trajectory):
+    def _get_reward(self, trajectory):
         rms = np.sqrt(np.mean(np.square(trajectory)))
         return (rms * (-1.))
 
@@ -172,9 +160,10 @@ class e_trajectory_simENV(gym.Env):
             rmatrix = self.responseV
             golden = self.goldenV
 
-        state = self._calculate_trajectory(init_positions, rmatrix, kicks-self.k0)
-        state -= self.goldenH
-        reward = self._get_reward(golden, state)
+        state = self._calculate_trajectory(rmatrix, self.kicks_0-kicks)
+        self.kicks_0 = self.kicks_0-kicks
+        #state -= self.goldenH
+        reward = self._get_reward(state)
         return state, reward
 
     def _calculate_response(self, bpmsTwiss, correctorsTwiss):
@@ -191,11 +180,10 @@ class e_trajectory_simENV(gym.Env):
                     rmatrix[i][j] = 0.0
         return rmatrix
 
-    def _calculate_trajectory(self, initial_pos, rmatrix, delta_settings ):
-        # add_noise = np.random.rand
-        initial_pos = 0  # TODO:Remove
+    def _calculate_trajectory(self, rmatrix, delta_settings):
+        # add_noise = np.random.ran
         delta_settings = np.squeeze(delta_settings)
-        return initial_pos + rmatrix.dot(delta_settings)
+        return  rmatrix.dot(delta_settings)
 
     def reset(self, **kwargs):
         """
@@ -208,12 +196,12 @@ class e_trajectory_simENV(gym.Env):
         self.is_finalized = False
 
         if (self.plane == Plane.horizontal):
-            self.settingsH = np.clip(np.random.randn(len(self.settingsH)), -self.act_lim, self.act_lim)
+            self.settingsH = np.random.randn(len(self.settingsH))
             # self.settingsH = (np.random.uniform(-2, 2, self.action_space.shape[0]))
-            kicks = self.settingsH * self.action_scale
+            self.kicks_0 = self.settingsH * self.action_scale
         if (self.plane == Plane.vertical):
             self.settingsV = np.clip(0.5 * np.random.randn(len(self.settingsV)), -self.act_lim, self.act_lim)
-            kicks = self.settingsV * self.action_scale
+            self.kicks_0 = self.settingsV * self.action_scale
 
         if (self.plane == Plane.horizontal):
             init_positions = np.zeros(len(self.positionsH))  # self.positionsH
@@ -228,24 +216,24 @@ class e_trajectory_simENV(gym.Env):
 
         if simulation:
             # print('init simulation...')
-            return_value =  kicks
+            return_value =  self.kicks_0
         else:
             # print('init')
             self.current_episode += 1
             self.current_steps = 0
             self.action_episode_memory.append([])
             self.rewards.append([])
-            self.k0 = kicks
-            state = self._calculate_trajectory(init_positions, rmatrix, kicks)
+            state = self._calculate_trajectory(rmatrix, self.kicks_0)
 
             if (self.plane == Plane.horizontal):
                 self.positionsH = state
+
             if (self.plane == Plane.vertical):
                 self.positionsV = state
+
             # Rescale for agent
             # state = state
             return_initial_state = np.array(state * self.state_scale)
-
             self.initial_conditions.append([return_initial_state])
             return_value = return_initial_state
 
@@ -262,7 +250,64 @@ class Plane(Enum):
 
 if __name__ == '__main__':
 
-    environment_instance = e_trajectory_simENV()
+    element_actor_list = ['rmi://virtual_awake/logical.RCIBH.430029/K',
+                          'rmi://virtual_awake/logical.RCIBH.430040/K',
+                          'rmi://virtual_awake/logical.RCIBH.430104/K',
+                          'rmi://virtual_awake/logical.RCIBH.430130/K',
+                          'rmi://virtual_awake/logical.RCIBH.430204/K',
+                          'rmi://virtual_awake/logical.RCIBH.430309/K',
+                          'rmi://virtual_awake/logical.RCIBH.412344/K',
+                          'rmi://virtual_awake/logical.RCIBH.412345/K',
+                          'rmi://virtual_awake/logical.RCIBH.412347/K',
+                          'rmi://virtual_awake/logical.RCIBH.412349/K',
+                          'rmi://virtual_awake/logical.RCIBH.412353/K',
+                          'rmi://virtual_awake/logical.RCIBV.430029/K',
+                          'rmi://virtual_awake/logical.RCIBV.430040/K',
+                          'rmi://virtual_awake/logical.RCIBV.430104/K',
+                          'rmi://virtual_awake/logical.RCIBV.430130/K',
+                          'rmi://virtual_awake/logical.RCIBV.430204/K',
+                          'rmi://virtual_awake/logical.RCIBV.430309/K',
+                          'rmi://virtual_awake/logical.RCIBV.412344/K',
+                          'rmi://virtual_awake/logical.RCIBV.412345/K',
+                          'rmi://virtual_awake/logical.RCIBV.412347/K',
+                          'rmi://virtual_awake/logical.RCIBV.412349/K',
+                          'rmi://virtual_awake/logical.RCIBV.412353/K']
+
+    element_state_list = ['BPM.430028_horizontal',
+                          'BPM.430039_horizontal',
+                          'BPM.430103_horizontal',
+                          'BPM.430129_horizontal',
+                          'BPM.430203_horizontal',
+                          'BPM.430308_horizontal',
+                          'BPM.412343_horizontal',
+                          'BPM.412345_horizontal',
+                          'BPM.412347_horizontal',
+                          'BPM.412349_horizontal',
+                          'BPM.412351_horizontal',
+                          'BPM.430028_vertical',
+                          'BPM.430039_vertical',
+                          'BPM.430103_vertical',
+                          'BPM.430129_vertical',
+                          'BPM.430203_vertical',
+                          'BPM.430308_vertical',
+                          'BPM.412343_vertical',
+                          'BPM.412345_vertical',
+                          'BPM.412347_vertical',
+                          'BPM.412349_vertical',
+                          'BPM.412351_vertical']
+
+    simulation = True
+    element_actor_list_selected = pd.Series(element_actor_list[:10])
+
+    element_state_list_selected = pd.Series(element_state_list[:11])
+
+
+    reference_position = np.zeros(len(element_state_list_selected))
+
+    env = e_trajectory_simENV(action_space=element_actor_list_selected, state_space=element_state_list_selected,
+                    noSet=False, debug=True, scale=1e-4)
+
+    rms_threshold = env.threshold
 
     rews = []
     actions = []
@@ -270,13 +315,13 @@ if __name__ == '__main__':
 
     def objective(action):
         actions.append(action.copy())
-        _, r, _, _ = environment_instance.step(action=action)
+        _, r, _, _ = env.step(action=action)
         rews.append(r*1e0)
         return -r
 
 
     # print(environment_instance.reset())
-    if True:
+    if False:
 
         def constr(action):
             if any(action > environment_instance.action_space.high[0]):
@@ -294,14 +339,14 @@ if __name__ == '__main__':
         res = opt.fmin_cobyla(objective, start_vector, [constr], rhobeg=rhobeg, rhoend=.1)
         print(res)
 
-    if False:
+    if True:
         # Bounded region of parameter space
-        pbounds = dict([('x' + str(i), (environment_instance.action_space.low[0],
-                                        environment_instance.action_space.high[0])) for i in range(1, 12)])
+        pbounds = dict([('x' + str(i), (env.action_space.low[0],
+                                        env.action_space.high[0])) for i in range(1, 12)])
 
 
-        def black_box_function(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11):
-            func_val = -1 * objective(np.array([x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, ]))
+        def black_box_function(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10):
+            func_val = -1 * objective(np.array([x1, x2, x3, x4, x5, x6, x7, x8, x9, x10]))
             return func_val
 
 

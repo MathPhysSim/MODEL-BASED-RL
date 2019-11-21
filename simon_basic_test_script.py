@@ -14,7 +14,7 @@ from pernaf.pernaf.utils.statistic import Statistic
 # from simple_environment import simpleEnv
 # from pendulum import PendulumEnv as simpleEnv
 # set random seed
-random_seed = 999
+random_seed = 123
 # set random seed
 tf.set_random_seed(random_seed)
 np.random.seed(random_seed)
@@ -178,11 +178,11 @@ def plot_convergence(agent, label):
 if __name__ == '__main__':
 
     discount = 0.9999
-    batch_size = 10
+    batch_size = 100
     learning_rate = 1e-3
     max_steps = 200
     update_repeat = 10
-    max_episodes = 500
+    max_episodes = 100
     tau = 1 - 0.999
     is_train = True
     is_continued = False
@@ -190,7 +190,7 @@ if __name__ == '__main__':
     nafnet_kwargs = dict(hidden_sizes=[32, 32], activation=tf.nn.tanh
                          , weight_init=tf.random_uniform_initializer(-0.05, 0.05))
 
-    prio_info = dict(alpha=.5, beta=.5)
+    prio_info = dict(alpha=.0, beta=.5)
 
     # filename = 'Scan_data.obj'
     # filehandler = open(filename, 'rb')
