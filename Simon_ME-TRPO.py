@@ -5,8 +5,6 @@ from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 
-
-
 element_actor_list = ['rmi://virtual_awake/logical.RCIBH.430029/K',
                       'rmi://virtual_awake/logical.RCIBH.430040/K',
                       'rmi://virtual_awake/logical.RCIBH.430104/K',
@@ -60,11 +58,9 @@ element_state_list_selected = pd.Series(element_state_list[:11])
 number_bpm_measurements = 30
 simulation = True
 if simulation:
-    from simulated_environment import e_trajectory_simENV as awakeEnv
+    from simulated_environment_final import e_trajectory_simENV as awakeEnv
 else:
     from awake_environment_machine import awakeEnv
-
-
 
 reference_position = np.zeros(len(element_state_list_selected))
 
@@ -72,6 +68,7 @@ env = awakeEnv(action_space=element_actor_list_selected, state_space=element_sta
                number_bpm_measurements=number_bpm_measurements, noSet=False, debug=True, scale=1e-4)
 
 rms_threshold = env.threshold
+
 
 def make_env():
     # env.seed(123)
@@ -207,6 +204,7 @@ def test_agent(env_test, agent_op, num_games=10, model_buffer=False):
     for _ in range(num_games):
         d = False
         game_r = 0
+        length = 0
         o = env_test.reset()
 
         while not d:
@@ -214,12 +212,14 @@ def test_agent(env_test, agent_op, num_games=10, model_buffer=False):
             a_s, _ = agent_op([o])
             o, r, d, _ = env_test.step(a_s)
             game_r += r
-            if model_buffer:
-                # add the new transition to the temporary buffer
-                # print(o0, a_s, r, o, d)
-                model_buffer.store(o0, a_s[0], r, o.copy(), d)
+            length+=1
+            # if model_buffer:
+            #     # add the new transition to the temporary buffer
+            #     # print(o0, a_s, r, o, d)
+            #     model_buffer.store(o0, a_s[0], r, o.copy(), d)
+        game_r = r # final reward only
         games_r.append(game_r)
-    return np.mean(games_r), np.std(games_r)
+    return np.mean(games_r), np.std(games_r), np.mean(length)
 
 
 class Buffer():
@@ -350,19 +350,23 @@ class NetworkEnv(gym.Wrapper):
         self.done_func = done_func
         self.number_models = number_models
         self.len_episode = 0
+        self.action_0 = None
 
     def reset(self, **kwargs):
         self.len_episode = 0
         kwargs['simulation'] = True
-        action = self.env.reset(**kwargs)
-        self.obs = self.model_func(np.zeros(env.observation_space.shape[0]), [np.squeeze(action)],
+        self.action_0 = np.random.uniform(low=-.5, high=.5, size=env.action_space.shape[0])  # self.env.reset(**kwargs)
+        self.current_action = self.action_0.copy()
+        self.obs = self.model_func(np.zeros(env.observation_space.shape[0]), [np.squeeze(self.current_action)],
                                    np.random.randint(0, self.number_models))
+        # self.obs = self.env.reset()
         return self.obs
 
     def step(self, action):
+        self.current_action = np.squeeze(action)
         # predict the next state on a random model
-        obs = self.model_func(self.obs, [np.squeeze(action)], np.random.randint(0, self.number_models))
-        rew = self.reward_func(self.obs, [np.squeeze(action)])
+        obs = self.model_func(self.obs, [self.current_action], np.random.randint(0, self.number_models))
+        rew = self.reward_func(self.obs, [self.current_action])
         done = self.done_func(obs)
 
         self.len_episode += 1
@@ -399,15 +403,15 @@ class StructEnv(gym.Wrapper):
         return ob, reward, done, info
 
     def get_episode_reward(self):
-        return self.total_rew
+        return self.total_rew/self.len_episode
 
     def get_episode_length(self):
-        return self.len_episode
+        return np.mean(self.len_episode)
 
 
 def episode_done(ob):
     # return np.abs(np.arcsin(np.squeeze(ob[3]))) > .2
-    return (np.sqrt(np.mean(np.square(ob))) < rms_threshold) or(np.sqrt(np.mean(np.square(ob))) >-2)
+    return -1 * (np.sqrt(np.mean(np.square(ob)))) > rms_threshold
 
 
 def final_reward(ob, ac):
@@ -428,7 +432,7 @@ def restore_model(old_model_variables, m_variables):
 
 
 def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, lam=0.95, number_envs=1,
-           critic_iter=10, steps_per_env=100, delta=0.2, algorithm='TRPO', conj_iters=10, minibatch_size=1000,
+           critic_iter=10, steps_per_env=100, delta=0.05, algorithm='TRPO', conj_iters=10, minibatch_size=1000,
            mb_lr=0.0001, model_batch_size=512, simulated_steps=300, num_ensemble_models=2, model_iter=15):
     '''
     Model Ensemble Trust Region Policy Optimization
@@ -599,7 +603,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
     # computational graph of N models
     for i in range(num_ensemble_models):
         with tf.variable_scope('model_' + str(i) + '_nn'):
-            nobs_pred = mlp(act_obs, [50, 50], obs_dim[0], tf.nn.relu, last_activation=None)
+            nobs_pred = mlp(act_obs, [64, 64], obs_dim[0], tf.nn.relu, last_activation=None)
             nobs_pred_m.append(nobs_pred)
 
         m_loss = tf.reduce_mean((nobs_ph - nobs_pred) ** 2)
@@ -838,15 +842,18 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
 
             # iterate over a fixed number of steps
             # TODO: Changed to rest
-            rest_steps = max(0, (ep+1)*steps_per_env-len(model_buffer))
             rest_steps = max(0, (ep + 1) * steps_per_env - len(model_buffer))
+            rest_steps = steps_per_env
             for _ in range(rest_steps):
                 # run the policy
 
                 if ep == 0:
                     # Sample random action during the first epoch
-                    act = env.action_space.sample()
+                    act = np.random.uniform(low=-1, high=1, size=env.action_space.shape[0])
+                    # act= env.action_space.sample()
+                    # print(np.mean(act))
                 else:
+                    # TODO: change feedback to new version
                     act = sess.run(a_sampl, feed_dict={obs_ph: [env.n_obs], log_std: init_log_std})
 
                 act = np.squeeze(act)
@@ -862,12 +869,13 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
 
                 if done:
                     batch_rew.append(env.get_episode_reward())
+                    # print(env.get_episode_reward())
                     batch_len.append(env.get_episode_length())
 
                     env.reset()
                     init_log_std = np.ones(act_dim) * np.log(np.random.rand() * 1)
 
-        print('Ep:%d Rew:%.2f -- Step:%d' % (ep, np.mean(batch_rew), step_count))
+        print('Ep:%d Rew:%.2f -- Len:%.2f -- Step:%d' % (ep, np.mean(batch_rew), np.mean(batch_len), step_count))
 
         ############################################################
         ###################### MODEL LEARNING ######################
@@ -894,31 +902,35 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
         best_sim_test = -2 * np.ones(num_ensemble_models)
 
         for it in range(80):
-            print('length is:', len(model_buffer))
+            # print('length is:', len(model_buffer))
             print('\t Policy it', it, end='.. ')
             ##################### MODEL SIMLUATION #####################
             obs_batch, act_batch, adv_batch, rtg_batch = simulate_environment(sim_env, action_op_noise, simulated_steps)
 
             ################# TRPO UPDATE ################
             policy_update(obs_batch, act_batch, adv_batch, rtg_batch)
+            if (it) % 100 == 0:
+                # Testing the policy on a real environment
+                mn_test, mn_test_std, length = test_agent(env_test, action_op, num_games=5)  # , model_buffer=model_buffer)
 
-            # Testing the policy on a real environment
-            mn_test, mn_test_std = test_agent(env_test, action_op, num_games=20, model_buffer=model_buffer)
-            print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2))
+                print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2), np.round(length, 2))
 
             summary = tf.Summary()
             summary.value.add(tag='test/performance', simple_value=mn_test)
             file_writer.add_summary(summary, step_count)
             file_writer.flush()
 
+            # if mn_test > env_test.threshold:
+            #     break
+
             # Test the policy on simulated environment.
-            if it>0:#(it + 1) % 1 == 0:
+            if (it + 1) % 5 == 0:
                 print('Simulated test:', end=' -- ')
                 sim_rewards = []
 
                 for i in range(num_ensemble_models):
                     sim_m_env = NetworkEnv(make_env(), model_op, final_reward, episode_done, i + 1)
-                    mn_sim_rew, _ = test_agent(sim_m_env, action_op, num_games=5)
+                    mn_sim_rew, _, _ = test_agent(sim_m_env, action_op, num_games=5)
                     sim_rewards.append(mn_sim_rew)
                     print(mn_sim_rew, end=' -- ')
 
@@ -928,12 +940,14 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                 if (np.sum(best_sim_test >= sim_rewards) > int(num_ensemble_models * 0.7)) \
                         or (len(sim_rewards[sim_rewards >= 990]) > int(num_ensemble_models * 0.7)):
                     print('break')
+                    mn_test, mn_test_std, lenght = test_agent(env_test, action_op, num_games=50)  # , model_buffer=model_buffer)
+                    print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2), np.round(length, 2))
                     break
                 else:
                     best_sim_test = sim_rewards
     # Testing the policy on a real environment
-    mn_test, mn_test_std = test_agent(env_test, action_op, num_games=30)
-    print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2))
+    mn_test, mn_test_std, lenght = test_agent(env_test, action_op, num_games=50)  # , model_buffer=model_buffer)
+    print(' Final score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2), np.round(length, 2))
     # closing environments..
     for env in envs:
         env.close()
@@ -979,7 +993,7 @@ def plot_results(env, label):
 
     ax1 = plt.twinx(ax)
     color = 'lime'
-    ax1.axhline(env.threshold, ls=':',c='r')
+    ax1.axhline(env.threshold, ls=':', c='r')
     ax1.set_ylabel('Initial RMS', color=color)  # we already handled the x-label with ax1
     ax1.tick_params(axis='y', labelcolor=color)
     ax1.plot(starts, color=color)
@@ -993,13 +1007,12 @@ def plot_results(env, label):
 
 if __name__ == '__main__':
     # set random seed
-    random_seed = 888
+    random_seed = 222
     tf.set_random_seed(random_seed)
     np.random.seed(random_seed)
-    METRPO('', hidden_sizes=[100,100], cr_lr=1e-3, gamma=0.9999, lam=0.95, num_epochs=20,
-           steps_per_env=50,
-           number_envs=1, critic_iter=15, delta=0.05, algorithm='TRPO', conj_iters=15, minibatch_size=200,
-           mb_lr=0.0001, model_batch_size=100, simulated_steps=2000, num_ensemble_models=5, model_iter=15)
+    METRPO('', hidden_sizes=[32,32], cr_lr=1e-3, gamma=0.9999, lam=0.95, num_epochs=5, steps_per_env=25,
+           number_envs=1, critic_iter=15, delta=0.5, algorithm='TRPO', conj_iters=15, minibatch_size=200,
+           mb_lr=0.0001, model_batch_size=100, simulated_steps=10000, num_ensemble_models=5, model_iter=5)
 
     # plot the results
     plot_results(env, 'ME-TRPO on AWAKE')

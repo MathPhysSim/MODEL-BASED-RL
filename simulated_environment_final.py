@@ -64,7 +64,7 @@ class e_trajectory_simENV(gym.Env):
 
         self.plane = Plane.horizontal
 
-        high = 1 * np.ones(len(self.correctorsH.elements))
+        high = 3 * np.ones(len(self.correctorsH.elements))
         low = (-1) * high
         self.action_space = spaces.Box(low=low, high=high, dtype=np.float32)
         self.act_lim = self.action_space.high[0]
@@ -78,14 +78,14 @@ class e_trajectory_simENV(gym.Env):
         if 'scale' in kwargs:
             self.action_scale = kwargs.get('scale')
         else:
-            self.action_scale = 1e-3
+            self.action_scale = 1e-4
         # print('selected scale at: ', self.action_scale)
-
         self.kicks_0 = np.zeros(len(self.correctorsH.elements))
 
         self.state_scale = 100  # Meters to millimeters as given from BPMs in the measurement later on
         self.reward_scale = 100  # Important
-        self.threshold = -0.002 * self.reward_scale
+
+        self.threshold = -0.001*self.reward_scale
         # self.TOTAL_COUNTER = -1
 
     def step(self, action, reference_position=None):
@@ -106,20 +106,15 @@ class e_trajectory_simENV(gym.Env):
         self.rewards[self.current_episode].append(return_reward)
 
         # state = state - self.goldenH
+        return_state = np.array(state * self.state_scale)
 
-        if (return_reward > self.threshold):
+        if (return_reward > self.threshold) or (return_reward < 15*self.threshold):
             self.is_finalized = True
-        if (abs(state)>0.02).any():
-            self.is_finalized = True
-            state = pd.DataFrame(state)
-            # state[abs(state)>0.02] = 0.02
-            state = np.squeeze(state.values)
             #if return_reward < -10:
             #   reward = -99
             # print('Finished at reward of:', reward, ' total episode nr.: ', self.current_episode)
             # print(action, return_state, return_reward)
         # print('Total interaction :', self.TOTAL_COUNTER)
-        return_state = np.array(state * self.state_scale)
         return return_state, return_reward, self.is_finalized, {}
 
     def setGolden(self, goldenH, goldenV):
@@ -144,11 +139,10 @@ class e_trajectory_simENV(gym.Env):
         #     kicks = (action-self.current_action) * self.action_scale
         #     self.current_action = action
 
-        kicks = np.squeeze(action) * self.action_scale
-        self.current_k+=kicks
+        kicks = action * self.action_scale
         #kicks += 0.075*np.random.randn(self.action_space.shape[0]) * self.action_scale
         # Apply the kicks...
-        state, reward = self._get_state_and_reward(self.current_k, self.plane)
+        state, reward = self._get_state_and_reward(kicks, self.plane)
         state += 0.000*np.random.randn(self.observation_space.shape[0])
         return state, reward
 
@@ -167,8 +161,9 @@ class e_trajectory_simENV(gym.Env):
             init_positions = self.positionsV
             rmatrix = self.responseV
             golden = self.goldenV
-        state = self._calculate_trajectory(rmatrix, kicks)
 
+        state = self._calculate_trajectory(rmatrix, self.kicks_0-kicks)
+        self.kicks_0 = self.kicks_0-kicks
         #state -= self.goldenH
         reward = self._get_reward(state)
         return state, reward
@@ -201,17 +196,14 @@ class e_trajectory_simENV(gym.Env):
         """
         simulation = False
         self.is_finalized = False
-        random_init_kicks = np.random.randn(self.action_space.shape[0])
-
-        self.current_k = self.kicks_0.copy()
 
         if (self.plane == Plane.horizontal):
-            self.settingsH = 2*np.random.randn(len(self.settingsH))
+            self.settingsH = np.random.randn(len(self.settingsH))
             # self.settingsH = (np.random.uniform(-2, 2, self.action_space.shape[0]))
-            # self.kicks_0 = self.settingsH * self.action_scale
+            self.kicks_0 = self.settingsH * self.action_scale
         if (self.plane == Plane.vertical):
             self.settingsV = np.clip(0.5 * np.random.randn(len(self.settingsV)), -self.act_lim, self.act_lim)
-            # self.kicks_0 = self.settingsV * self.action_scale
+            self.kicks_0 = self.settingsV * self.action_scale
 
         if (self.plane == Plane.horizontal):
             init_positions = np.zeros(len(self.positionsH))  # self.positionsH
@@ -226,15 +218,14 @@ class e_trajectory_simENV(gym.Env):
 
         if simulation:
             # print('init simulation...')
-            return_value =  self.current_k/self.action_scale+random_init_kicks
+            return_value =  self.kicks_0
         else:
             # print('init')
             self.current_episode += 1
             self.current_steps = 0
             self.action_episode_memory.append([])
             self.rewards.append([])
-            state, _ = self._take_action(random_init_kicks)
-            # state = self._calculate_trajectory(rmatrix, random_init_kicks)
+            state = self._calculate_trajectory(rmatrix, self.kicks_0)
 
             if (self.plane == Plane.horizontal):
                 self.positionsH = state
@@ -261,121 +252,67 @@ class Plane(Enum):
 
 if __name__ == '__main__':
 
-    element_actor_list = ['rmi://virtual_awake/logical.RCIBH.430029/K',
-                          'rmi://virtual_awake/logical.RCIBH.430040/K',
-                          'rmi://virtual_awake/logical.RCIBH.430104/K',
-                          'rmi://virtual_awake/logical.RCIBH.430130/K',
-                          'rmi://virtual_awake/logical.RCIBH.430204/K',
-                          'rmi://virtual_awake/logical.RCIBH.430309/K',
-                          'rmi://virtual_awake/logical.RCIBH.412344/K',
-                          'rmi://virtual_awake/logical.RCIBH.412345/K',
-                          'rmi://virtual_awake/logical.RCIBH.412347/K',
-                          'rmi://virtual_awake/logical.RCIBH.412349/K',
-                          'rmi://virtual_awake/logical.RCIBH.412353/K',
-                          'rmi://virtual_awake/logical.RCIBV.430029/K',
-                          'rmi://virtual_awake/logical.RCIBV.430040/K',
-                          'rmi://virtual_awake/logical.RCIBV.430104/K',
-                          'rmi://virtual_awake/logical.RCIBV.430130/K',
-                          'rmi://virtual_awake/logical.RCIBV.430204/K',
-                          'rmi://virtual_awake/logical.RCIBV.430309/K',
-                          'rmi://virtual_awake/logical.RCIBV.412344/K',
-                          'rmi://virtual_awake/logical.RCIBV.412345/K',
-                          'rmi://virtual_awake/logical.RCIBV.412347/K',
-                          'rmi://virtual_awake/logical.RCIBV.412349/K',
-                          'rmi://virtual_awake/logical.RCIBV.412353/K']
-
-    element_state_list = ['BPM.430028_horizontal',
-                          'BPM.430039_horizontal',
-                          'BPM.430103_horizontal',
-                          'BPM.430129_horizontal',
-                          'BPM.430203_horizontal',
-                          'BPM.430308_horizontal',
-                          'BPM.412343_horizontal',
-                          'BPM.412345_horizontal',
-                          'BPM.412347_horizontal',
-                          'BPM.412349_horizontal',
-                          'BPM.412351_horizontal',
-                          'BPM.430028_vertical',
-                          'BPM.430039_vertical',
-                          'BPM.430103_vertical',
-                          'BPM.430129_vertical',
-                          'BPM.430203_vertical',
-                          'BPM.430308_vertical',
-                          'BPM.412343_vertical',
-                          'BPM.412345_vertical',
-                          'BPM.412347_vertical',
-                          'BPM.412349_vertical',
-                          'BPM.412351_vertical']
-
-    simulation = True
-    element_actor_list_selected = pd.Series(element_actor_list[:10])
-
-    element_state_list_selected = pd.Series(element_state_list[:11])
-
-
-    reference_position = np.zeros(len(element_state_list_selected))
-
-    env = e_trajectory_simENV(action_space=element_actor_list_selected, state_space=element_state_list_selected,
-                    noSet=False, debug=True, scale=1e-4)
-
-    rms_threshold = env.threshold
+    env = e_trajectory_simENV()
+    env.reset()
+    for _ in range(100):
+        print(env.step(np.random.uniform(low=-1, high=1, size=env.action_space.shape[0]))[1])
 
     rews = []
     actions = []
 
 
-    def objective(action):
-        actions.append(action.copy())
-        _, r, _, _ = env.step(action=action)
-        rews.append(r*1e0)
-        return -r
-
-
-    # print(environment_instance.reset())
-    if False:
-
-        def constr(action):
-            if any(action > environment_instance.action_space.high[0]):
-                return -1
-            elif any(action < environment_instance.action_space.low[0]):
-                return -1
-            else:
-                return 1
-
-
-        print('init: ', environment_instance.reset())
-        start_vector = np.zeros(environment_instance.action_space.shape[0])
-        rhobeg = 1 * environment_instance.action_space.high[0]
-        print('rhobeg: ', rhobeg)
-        res = opt.fmin_cobyla(objective, start_vector, [constr], rhobeg=rhobeg, rhoend=.1)
-        print(res)
-
-    if True:
-        # Bounded region of parameter space
-        pbounds = dict([('x' + str(i), (env.action_space.low[0],
-                                        env.action_space.high[0])) for i in range(1, 12)])
-
-
-        def black_box_function(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10):
-            func_val = -1 * objective(np.array([x1, x2, x3, x4, x5, x6, x7, x8, x9, x10]))
-            return func_val
-
-
-        optimizer = BayesianOptimization(
-            f=black_box_function,
-            pbounds=pbounds,
-            verbose=2,  # verbose = 1 prints only when a maximum is observed, verbose = 0 is silent
-            random_state=3, )
-
-        optimizer.maximize(
-            init_points=25,
-            n_iter=100,
-            acq="ucb"
-        )
-        objective(np.array([optimizer.max['params'][x] for x in optimizer.max['params']]))
-
-    fig, axs = plt.subplots(2, sharex=True)
-    axs[1].plot(rews)
-
-    pd.DataFrame(actions).plot(ax=axs[0])
-    plt.show()
+    # def objective(action):
+    #     actions.append(action.copy())
+    #     _, r, _, _ = environment_instance.step(action=action)
+    #     rews.append(r*1e0)
+    #     return -r
+    #
+    #
+    # # print(environment_instance.reset())
+    # if True:
+    #
+    #     def constr(action):
+    #         if any(action > environment_instance.action_space.high[0]):
+    #             return -1
+    #         elif any(action < environment_instance.action_space.low[0]):
+    #             return -1
+    #         else:
+    #             return 1
+    #
+    #
+    #     print('init: ', environment_instance.reset())
+    #     start_vector = np.zeros(environment_instance.action_space.shape[0])
+    #     rhobeg = 1 * environment_instance.action_space.high[0]
+    #     print('rhobeg: ', rhobeg)
+    #     res = opt.fmin_cobyla(objective, start_vector, [constr], rhobeg=rhobeg, rhoend=.1)
+    #     print(res)
+    #
+    # if False:
+    #     # Bounded region of parameter space
+    #     pbounds = dict([('x' + str(i), (environment_instance.action_space.low[0],
+    #                                     environment_instance.action_space.high[0])) for i in range(1, 12)])
+    #
+    #
+    #     def black_box_function(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11):
+    #         func_val = -1 * objective(np.array([x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, ]))
+    #         return func_val
+    #
+    #
+    #     optimizer = BayesianOptimization(
+    #         f=black_box_function,
+    #         pbounds=pbounds,
+    #         verbose=2,  # verbose = 1 prints only when a maximum is observed, verbose = 0 is silent
+    #         random_state=3, )
+    #
+    #     optimizer.maximize(
+    #         init_points=25,
+    #         n_iter=100,
+    #         acq="ucb"
+    #     )
+    #     objective(np.array([optimizer.max['params'][x] for x in optimizer.max['params']]))
+    #
+    # fig, axs = plt.subplots(2, sharex=True)
+    # axs[1].plot(rews)
+    #
+    # pd.DataFrame(actions).plot(ax=axs[0])
+    # plt.show()
