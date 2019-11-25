@@ -69,7 +69,7 @@ class e_trajectory_simENV(gym.Env):
         self.action_space = spaces.Box(low=low, high=high, dtype=np.float32)
         self.act_lim = self.action_space.high[0]
 
-        high = np.ones(len(self.bpmsH.elements))
+        high = 0.05*np.ones(len(self.bpmsH.elements))
         low = (-1) * high
         self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
 
@@ -78,7 +78,7 @@ class e_trajectory_simENV(gym.Env):
         if 'scale' in kwargs:
             self.action_scale = kwargs.get('scale')
         else:
-            self.action_scale = 1e-4
+            self.action_scale = 1e-3
         # print('selected scale at: ', self.action_scale)
         self.kicks_0 = np.zeros(len(self.correctorsH.elements))
 

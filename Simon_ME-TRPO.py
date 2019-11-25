@@ -4,7 +4,7 @@ import gym
 from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
-
+# TODO: Exploration noise decay
 element_actor_list = ['rmi://virtual_awake/logical.RCIBH.430029/K',
                       'rmi://virtual_awake/logical.RCIBH.430040/K',
                       'rmi://virtual_awake/logical.RCIBH.430104/K',
@@ -65,7 +65,7 @@ else:
 reference_position = np.zeros(len(element_state_list_selected))
 
 env = awakeEnv(action_space=element_actor_list_selected, state_space=element_state_list_selected,
-               number_bpm_measurements=number_bpm_measurements, noSet=False, debug=True, scale=1e-4)
+               number_bpm_measurements=number_bpm_measurements, noSet=False, debug=True, scale=3e-4)
 
 rms_threshold = env.threshold
 
@@ -213,10 +213,10 @@ def test_agent(env_test, agent_op, num_games=10, model_buffer=False):
             o, r, d, _ = env_test.step(a_s)
             game_r += r
             length+=1
-            # if model_buffer:
-            #     # add the new transition to the temporary buffer
-            #     # print(o0, a_s, r, o, d)
-            #     model_buffer.store(o0, a_s[0], r, o.copy(), d)
+            if model_buffer:
+                # add the new transition to the temporary buffer
+                # print(o0, a_s, r, o, d)
+                model_buffer.store(o0, a_s[0], r, o.copy(), d)
         game_r = r # final reward only
         games_r.append(game_r)
     return np.mean(games_r), np.std(games_r), np.mean(length)
@@ -843,7 +843,8 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             # iterate over a fixed number of steps
             # TODO: Changed to rest
             rest_steps = max(0, (ep + 1) * steps_per_env - len(model_buffer))
-            rest_steps = steps_per_env
+            print('rest steps')
+            # rest_steps = steps_per_env
             for _ in range(rest_steps):
                 # run the policy
 
@@ -911,7 +912,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             policy_update(obs_batch, act_batch, adv_batch, rtg_batch)
             if (it) % 100 == 0:
                 # Testing the policy on a real environment
-                mn_test, mn_test_std, length = test_agent(env_test, action_op, num_games=5)  # , model_buffer=model_buffer)
+                mn_test, mn_test_std, length = test_agent(env_test, action_op, num_games=5 , model_buffer=model_buffer)
 
                 print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2), np.round(length, 2))
 
@@ -940,13 +941,14 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                 if (np.sum(best_sim_test >= sim_rewards) > int(num_ensemble_models * 0.7)) \
                         or (len(sim_rewards[sim_rewards >= 990]) > int(num_ensemble_models * 0.7)):
                     print('break')
-                    mn_test, mn_test_std, lenght = test_agent(env_test, action_op, num_games=50)  # , model_buffer=model_buffer)
+                    mn_test, mn_test_std, lenght = test_agent(env_test, action_op, num_games=5,
+                     model_buffer=model_buffer)  #
                     print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2), np.round(length, 2))
                     break
                 else:
                     best_sim_test = sim_rewards
     # Testing the policy on a real environment
-    mn_test, mn_test_std, lenght = test_agent(env_test, action_op, num_games=50)  # , model_buffer=model_buffer)
+    mn_test, mn_test_std, lenght = test_agent(env_test, action_op, num_games=50 )#, model_buffer=model_buffer)
     print(' Final score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2), np.round(length, 2))
     # closing environments..
     for env in envs:
@@ -1010,8 +1012,8 @@ if __name__ == '__main__':
     random_seed = 222
     tf.set_random_seed(random_seed)
     np.random.seed(random_seed)
-    METRPO('', hidden_sizes=[32,32], cr_lr=1e-3, gamma=0.9999, lam=0.95, num_epochs=5, steps_per_env=25,
-           number_envs=1, critic_iter=15, delta=0.5, algorithm='TRPO', conj_iters=15, minibatch_size=200,
+    METRPO('', hidden_sizes=[100, 100], cr_lr=1e-3, gamma=0.9999, lam=0.95, num_epochs=1, steps_per_env=100,
+           number_envs=1, critic_iter=15, delta=0.7, algorithm='TRPO', conj_iters=15, minibatch_size=200,
            mb_lr=0.0001, model_batch_size=100, simulated_steps=10000, num_ensemble_models=5, model_iter=5)
 
     # plot the results
