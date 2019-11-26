@@ -4,7 +4,16 @@ import gym
 from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
+# from spinningup import sac
+
+
 # TODO: Exploration noise decay
+from spinningup.spinup.algos.ddpg.ddpg import ddpg
+from spinningup.spinup.algos.ppo.ppo import ppo
+from spinningup.spinup.algos.sac.sac import sac
+from spinningup.spinup.algos.td3.td3 import td3
+from spinningup.spinup.utils.test_policy import load_policy
+
 element_actor_list = ['rmi://virtual_awake/logical.RCIBH.430029/K',
                       'rmi://virtual_awake/logical.RCIBH.430040/K',
                       'rmi://virtual_awake/logical.RCIBH.430104/K',
@@ -212,12 +221,12 @@ def test_agent(env_test, agent_op, num_games=10, model_buffer=False):
             a_s, _ = agent_op([o])
             o, r, d, _ = env_test.step(a_s)
             game_r += r
-            length+=1
+            length += 1
             if model_buffer:
                 # add the new transition to the temporary buffer
                 # print(o0, a_s, r, o, d)
                 model_buffer.store(o0, a_s[0], r, o.copy(), d)
-        game_r = r # final reward only
+        game_r = r  # final reward only
         games_r.append(game_r)
     return np.mean(games_r), np.std(games_r), np.mean(length)
 
@@ -305,6 +314,7 @@ class FullBuffer():
         return len(self.obs)
 
 
+# get trajectories from the current policy in the simulated environment
 def simulate_environment(env, policy, simulated_steps):
     buffer = Buffer(0.99, 0.95)
     # lists to store rewards and length of the trajectories completed
@@ -403,7 +413,7 @@ class StructEnv(gym.Wrapper):
         return ob, reward, done, info
 
     def get_episode_reward(self):
-        return self.total_rew/self.len_episode
+        return self.total_rew / self.len_episode
 
     def get_episode_length(self):
         return np.mean(self.len_episode)
@@ -429,6 +439,15 @@ def restore_model(old_model_variables, m_variables):
         it_v2 += tf.reduce_prod(m_v.shape)
 
     return tf.group(*restore_m_params)
+
+
+def run_agent(env_fn, iteration, logging_sac):
+    ac_kwargs = dict(hidden_sizes=[64, 64], activation=tf.nn.relu)
+    logger_kwargs = dict(output_dir=logging_sac, exp_name='experiment_name')
+    nr_epochs = (1 + iteration) * (30)
+    steps_per_epoch = 1000
+    td3(env_fn=env_fn, ac_kwargs=ac_kwargs, steps_per_epoch=steps_per_epoch, epochs=nr_epochs,
+        logger_kwargs=logger_kwargs, start_steps=int(nr_epochs*0.1*steps_per_epoch))
 
 
 def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, lam=0.95, number_envs=1,
@@ -656,7 +675,13 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
     # initialize the variables
     sess.run(tf.global_variables_initializer())
 
+    # TODO strongly modified, change top be generic:
+    logging_sac = 'path/to/output_dir'
+
+    # get_action = None
+
     def action_op(o):
+        # return get_action(o)
         return sess.run([p_means, s_values], feed_dict={obs_ph: o})
 
     def action_op_noise(o):
@@ -685,6 +710,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
         '''
         return sess.run(initialize_models[i], feed_dict={old_model_variables: model_variables_to_assign})
 
+    # policy update as obtained via the trajectories of the simulated environment
     def policy_update(obs_batch, act_batch, adv_batch, rtg_batch):
         # log probabilities, logits and log std of the "old" policy
         # "old" policy refer to the policy to optimize and that has been used to sample from the environment
@@ -854,8 +880,9 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                     # act= env.action_space.sample()
                     # print(np.mean(act))
                 else:
-                    # TODO: change feedback to new version
-                    act = sess.run(a_sampl, feed_dict={obs_ph: [env.n_obs], log_std: init_log_std})
+                    # TODO: change feedback to new version - modify exploration
+                    # act = sess.run(a_sampl, feed_dict={obs_ph: [env.n_obs], log_std: init_log_std})
+                    act = action_op + np.random.rand()
 
                 act = np.squeeze(act)
 
@@ -902,20 +929,27 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
         # TODO: Modified code by Simon
         best_sim_test = -2 * np.ones(num_ensemble_models)
 
-        for it in range(80):
+        for it in range(1):
             # print('length is:', len(model_buffer))
             print('\t Policy it', it, end='.. ')
+
             ##################### MODEL SIMLUATION #####################
-            obs_batch, act_batch, adv_batch, rtg_batch = simulate_environment(sim_env, action_op_noise, simulated_steps)
+            # obs_batch, act_batch, adv_batch, rtg_batch = simulate_environment(sim_env, action_op_noise, simulated_steps)
 
             ################# TRPO UPDATE ################
-            policy_update(obs_batch, act_batch, adv_batch, rtg_batch)
-            ################# TRPO UPDATE ################
+            # policy_update(obs_batch, act_batch, adv_batch, rtg_batch)
+
+            ################# MFRL- UPDATE ################
+            # TODO: continue the training
+            env_fn = lambda: sim_env
+            run_agent(env_fn=env_fn, iteration=it, logging_sac=logging_sac)
+            print('new policy...')
+            action_o, _ = load_policy(logging_sac)
+            print('loaded...')
 
             if (it) % 100 == 0:
                 # Testing the policy on a real environment
-                mn_test, mn_test_std, length = test_agent(env_test, action_op, num_games=5 , model_buffer=model_buffer)
-
+                mn_test, mn_test_std, length = test_agent(env_test, action_op, num_games=5, model_buffer=model_buffer)
                 print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2), np.round(length, 2))
 
             summary = tf.Summary()
@@ -944,13 +978,13 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                         or (len(sim_rewards[sim_rewards >= 990]) > int(num_ensemble_models * 0.7)):
                     print('break')
                     mn_test, mn_test_std, lenght = test_agent(env_test, action_op, num_games=5,
-                     model_buffer=model_buffer)  #
+                                                              model_buffer=model_buffer)  #
                     print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2), np.round(length, 2))
                     break
                 else:
                     best_sim_test = sim_rewards
     # Testing the policy on a real environment
-    mn_test, mn_test_std, lenght = test_agent(env_test, action_op, num_games=50 )#, model_buffer=model_buffer)
+    mn_test, mn_test_std, lenght = test_agent(env_test, action_op, num_games=50)  # , model_buffer=model_buffer)
     print(' Final score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2), np.round(length, 2))
     # closing environments..
     for env in envs:
@@ -1014,9 +1048,9 @@ if __name__ == '__main__':
     random_seed = 222
     tf.set_random_seed(random_seed)
     np.random.seed(random_seed)
-    METRPO('', hidden_sizes=[100, 100], cr_lr=1e-3, gamma=0.9999, lam=0.95, num_epochs=1, steps_per_env=100,
+    METRPO('', hidden_sizes=[100, 100], cr_lr=1e-3, gamma=0.9999, lam=0.95, num_epochs=1, steps_per_env=75,
            number_envs=1, critic_iter=15, delta=0.7, algorithm='TRPO', conj_iters=15, minibatch_size=200,
-           mb_lr=0.0001, model_batch_size=100, simulated_steps=10000, num_ensemble_models=5, model_iter=5)
+           mb_lr=0.0001, model_batch_size=100, simulated_steps=10000, num_ensemble_models=1, model_iter=5)
 
     # plot the results
     plot_results(env, 'ME-TRPO on AWAKE')
