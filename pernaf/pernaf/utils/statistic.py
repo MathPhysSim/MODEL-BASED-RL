@@ -75,7 +75,7 @@ class Statistic(object):
         self.ep_rewards.append(reward)
 
         if self.counter % self.save_frequency == 0:
-            print('saving...')
+            # print('saving...')
             self.save_model(self.t)
 
         if terminal:
@@ -87,8 +87,8 @@ class Statistic(object):
             avg_r = np.mean(self.ep_rewards)
             total_r = np.sum(self.ep_rewards)
 
-            print('t: %d, R: %.3f, r: %.3f, q: %.3f, v: %.3f, a: %.3f, l: %.3f' \
-                  % (self.t, total_r, avg_r, avg_q, avg_q, avg_a, avg_l))
+            print('t: %d, steps %d, R: %.3f, r: %.3f, q: %.3f, v: %.3f, a: %.3f, l: %.3f' \
+                  % (self.t,self.ep_step, total_r, avg_r, avg_q, avg_q, avg_a, avg_l))
             self.average_rewards.append(avg_r)
 
             if self.max_avg_r == None:
@@ -122,7 +122,7 @@ class Statistic(object):
         # initialize all of the variables
         init_op = tf.global_variables_initializer()  # create the graph
 
-        self.sess.run(init_op)
+        # self.sess.run(init_op)
         # [print(x) for x in tf.global_variables()]
 
         folder_name = self.model_dir

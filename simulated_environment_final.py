@@ -29,7 +29,7 @@ class e_trajectory_simENV(gym.Env):
         logging.info("e_trajectory_simENV - Version {}".format(self.__version__))
 
         # General variables defining the environment
-        self.MAX_TIME = 10
+        self.MAX_TIME = 50
         self.is_finalized = False
         self.current_episode = -1
 
@@ -64,12 +64,12 @@ class e_trajectory_simENV(gym.Env):
 
         self.plane = Plane.horizontal
 
-        high = 3 * np.ones(len(self.correctorsH.elements))
+        high = 3*np.ones(len(self.correctorsH.elements))
         low = (-1) * high
         self.action_space = spaces.Box(low=low, high=high, dtype=np.float32)
         self.act_lim = self.action_space.high[0]
 
-        high = 0.05*np.ones(len(self.bpmsH.elements))
+        high = 1*np.ones(len(self.bpmsH.elements))
         low = (-1) * high
         self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
 
@@ -83,9 +83,9 @@ class e_trajectory_simENV(gym.Env):
         self.kicks_0 = np.zeros(len(self.correctorsH.elements))
 
         self.state_scale = 100  # Meters to millimeters as given from BPMs in the measurement later on
-        self.reward_scale = 100  # Important
+        # self.reward_scale = 10  # Important
 
-        self.threshold = -0.001*self.reward_scale
+        self.threshold = -0.001*self.state_scale
         # self.TOTAL_COUNTER = -1
 
     def step(self, action, reference_position=None):
@@ -97,24 +97,33 @@ class e_trajectory_simENV(gym.Env):
 
         # Check if episode time is over
         self.current_steps += 1
-        if self.current_steps > self.MAX_TIME:
+        if self.current_steps >= self.MAX_TIME:
             self.is_finalized = True
         # To finish the episode if reward is sufficient
+
+
         # Rescale to fit millimeter reward
-        return_reward = reward * self.reward_scale
+        return_reward = reward * self.state_scale
 
         self.rewards[self.current_episode].append(return_reward)
 
         # state = state - self.goldenH
         return_state = np.array(state * self.state_scale)
 
-        if (return_reward > self.threshold) or (return_reward < 15*self.threshold):
+        if (return_reward > self.threshold):# or any(abs(return_state)> 10*abs(self.threshold)):
             self.is_finalized = True
             #if return_reward < -10:
             #   reward = -99
             # print('Finished at reward of:', reward, ' total episode nr.: ', self.current_episode)
             # print(action, return_state, return_reward)
         # print('Total interaction :', self.TOTAL_COUNTER)
+
+        # inject trajectory cut
+        if any(abs(return_state)> 10*abs(self.threshold)):
+            return_state[np.argmax(abs(return_state) >= abs(15*self.threshold)):] = 15*self.threshold
+            self.is_finalized = True
+            return_reward = -np.sqrt(np.mean(np.square(return_state)))
+
         return return_state, return_reward, self.is_finalized, {}
 
     def setGolden(self, goldenH, goldenV):
@@ -161,11 +170,12 @@ class e_trajectory_simENV(gym.Env):
             init_positions = self.positionsV
             rmatrix = self.responseV
             golden = self.goldenV
-
-        state = self._calculate_trajectory(rmatrix, self.kicks_0-kicks)
-        self.kicks_0 = self.kicks_0-kicks
+        delta_settings = self.kicks_0-kicks
+        state = self._calculate_trajectory(rmatrix, delta_settings)
+        self.kicks_0 = delta_settings.copy()
         #state -= self.goldenH
         reward = self._get_reward(state)
+
         return state, reward
 
     def _calculate_response(self, bpmsTwiss, correctorsTwiss):
@@ -198,7 +208,7 @@ class e_trajectory_simENV(gym.Env):
         self.is_finalized = False
 
         if (self.plane == Plane.horizontal):
-            self.settingsH = np.random.randn(len(self.settingsH))
+            self.settingsH = self.action_space.sample()
             # self.settingsH = (np.random.uniform(-2, 2, self.action_space.shape[0]))
             self.kicks_0 = self.settingsH * self.action_scale
         if (self.plane == Plane.vertical):
@@ -217,10 +227,10 @@ class e_trajectory_simENV(gym.Env):
             simulation = kwargs.get('simulation')
 
         if simulation:
-            # print('init simulation...')
+            print('init simulation...')
             return_value =  self.kicks_0
         else:
-            # print('init')
+
             self.current_episode += 1
             self.current_steps = 0
             self.action_episode_memory.append([])
@@ -237,7 +247,13 @@ class e_trajectory_simENV(gym.Env):
             # state = state
             return_initial_state = np.array(state * self.state_scale)
             self.initial_conditions.append([return_initial_state])
+            # print('init', return_initial_state)
             return_value = return_initial_state
+
+        # Cut trajectory
+        if any(abs(return_value)> 10*abs(self.threshold)):
+            return_value[np.argmax(abs(return_value) >= abs(10*self.threshold)):] = 10*self.threshold
+            # self.is_finalized = True
 
         return return_value
 

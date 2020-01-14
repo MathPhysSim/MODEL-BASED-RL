@@ -78,15 +78,33 @@ class NAF(object):
     def __init__(self, sess,
                  env, stat,
                  discount, batch_size, learning_rate,
-                 max_steps, update_repeat, max_episodes, tau, pretune = None, prio_info=dict(), **nafnet_kwargs):
-
+                 max_steps, update_repeat, max_episodes, tau, pretune = None, prio_info=dict(), noise_info=dict(), **nafnet_kwargs):
+        '''
+        :param sess: current tensorflow session
+        :param env: open gym environment to be solved
+        :param stat: statistic class to handle tensorflow and statitics
+        :param discount: discount factor
+        :param batch_size: batch size for the training
+        :param learning_rate: learning rate
+        :param max_steps: maximal steps per episode
+        :param update_repeat: iteration per step of training
+        :param max_episodes: maximum number of episodes
+        :param tau: polyac averaging
+        :param pretune: list of tuples of state action reward next state done
+        :param prio_info: parameters to handle the prioritizing of the buffer
+        :param nafnet_kwargs: keywords to handle the network
+        :param noise_info: dict with noise_function
+        '''
         self.pretune = pretune
         self.prio_info = prio_info
         self.per_flag = bool(self.prio_info)
         print('PER is:', self.per_flag)
         self.sess = sess
         self.env = env
-
+        if 'noise_function' in noise_info:
+            self.noise_function = noise_info.get('noise_function')
+        else:
+            self.noise_function = lambda nr: 1/(nr+1)
         self.x_ph, self.a_ph, self.mu, self.V, self.Q, self.P, self.A, self.vars_pred \
             = core.mlp_normalized_advantage_function(env.observation_space.shape, act_dim=env.action_space.shape,
                                                      **nafnet_kwargs,
@@ -96,6 +114,12 @@ class NAF(object):
             = core.mlp_normalized_advantage_function(env.observation_space.shape, act_dim=env.action_space.shape,
                                                      **nafnet_kwargs,
                                                      scope='target')
+
+        _,_,_,_,_,_,_, \
+        self.vars_zeros \
+            = core.mlp_normalized_advantage_function(env.observation_space.shape, act_dim=env.action_space.shape,
+                                                     **nafnet_kwargs,
+                                                     scope='zero')
         self.stat = stat
         self.discount = discount
         self.batch_size = batch_size
@@ -127,6 +151,9 @@ class NAF(object):
         self.target_init = tf.group([tf.assign(v_targ, v_main)
                                      for v_main, v_targ in zip(self.vars_pred, self.vars_targ)])
 
+        self.pred_init_zeros = tf.group([tf.assign(v_targ, v_main)
+                                     for v_main, v_targ in zip(self.vars_zeros, self.vars_pred)])
+
         # Polyak averaging for target variables (previous soft update)
         polyak = 1 - tau
         self.target_update = tf.group([tf.assign(v_targ, polyak*v_targ + (1 - polyak) * v_main)
@@ -134,11 +161,25 @@ class NAF(object):
         self.losses = []
         self.vs = []
 
-    def run(self, is_train=True):
+    def reset(self):
+        if not (self.per_flag):
+            self.replay_buffer = ReplayBuffer(obs_dim=self.obs_dim, act_dim=self.action_size, size=int(1e6))
+        else:
+            self.replay_buffer = ReplayBufferPER(obs_dim=self.obs_dim, act_dim=self.action_size, size=int(1e6),
+                                                 prio_info=self.prio_info)
+        self.sess.run(self.pred_init_zeros)
+        self.sess.run(self.target_init)
+        print('reset the agent')
+
+    def run(self, env, is_train=True, **kwargs):
+        if 'noise_function' in kwargs:
+            self.noise_function = kwargs.get('noise_function')
+            print(self.noise_function(0))
         print('Training:', is_train)
         # tf.initialize_all_variables().run()
         self.stat.set_variables(self.vars_pred)
         self.stat.load_model()  # including init
+
         # if is_train:
         #     self.sess.run(self.target_init)
 
@@ -165,12 +206,12 @@ class NAF(object):
         # -------------------------------------------------------------------------
 
         for self.idx_episode in range(self.max_episodes):
-            o = self.env.reset()
+            o = env.reset()
             for t in range(0, self.max_steps):
                 # 1. predict
                 a = self.predict(o, is_train)
                 # 2. step
-                o2, r, d, _ = self.env.step(a)
+                o2, r, d, _ = env.step(a)
                 if is_train:
                     self.replay_buffer.store(o, a, r, o2, d)
                 o = o2
@@ -187,7 +228,7 @@ class NAF(object):
     def predict(self, state, is_train):
         u = self.sess.run(self.mu, feed_dict={self.x_ph: [state]})[0]
         if is_train:
-            noise_scale = 1 / (self.idx_episode*0.1 + 1)
+            noise_scale = self.noise_function(self.idx_episode)
             return u + noise_scale * np.random.randn(self.action_size)
         else:
             return u
