@@ -29,9 +29,10 @@ class e_trajectory_simENV(gym.Env):
         logging.info("e_trajectory_simENV - Version {}".format(self.__version__))
 
         # General variables defining the environment
-        self.MAX_TIME = 50
+        self.MAX_TIME = 15
         self.is_finalized = False
         self.current_episode = -1
+        self.episode_length = None
 
         # For internal stats...
         self.action_episode_memory = []
@@ -88,6 +89,8 @@ class e_trajectory_simENV(gym.Env):
         self.threshold = -0.001*self.state_scale
         # self.TOTAL_COUNTER = -1
 
+        self.success = 0
+
     def step(self, action, reference_position=None):
 
         state, reward = self._take_action(action)
@@ -112,6 +115,8 @@ class e_trajectory_simENV(gym.Env):
 
         if (return_reward > self.threshold):# or any(abs(return_state)> 10*abs(self.threshold)):
             self.is_finalized = True
+            self.success = 1
+            # return_reward+=.1
             #if return_reward < -10:
             #   reward = -99
             # print('Finished at reward of:', reward, ' total episode nr.: ', self.current_episode)
@@ -119,11 +124,12 @@ class e_trajectory_simENV(gym.Env):
         # print('Total interaction :', self.TOTAL_COUNTER)
 
         # inject trajectory cut
-        if any(abs(return_state)> 10*abs(self.threshold)):
-            return_state[np.argmax(abs(return_state) >= abs(15*self.threshold)):] = 15*self.threshold
+        elif any(abs(return_state)> 10*abs(self.threshold)):
+            return_state[np.argmax(abs(return_state) >= abs(10*self.threshold)):] = 10*self.threshold
             self.is_finalized = True
             return_reward = -np.sqrt(np.mean(np.square(return_state)))
-
+        self.episode_length += 1
+        # return_reward*=self.episode_length
         return return_state, return_reward, self.is_finalized, {}
 
     def setGolden(self, goldenH, goldenV):
@@ -206,53 +212,49 @@ class e_trajectory_simENV(gym.Env):
         """
         simulation = False
         self.is_finalized = False
-
-        if (self.plane == Plane.horizontal):
-            self.settingsH = self.action_space.sample()
-            # self.settingsH = (np.random.uniform(-2, 2, self.action_space.shape[0]))
-            self.kicks_0 = self.settingsH * self.action_scale
-        if (self.plane == Plane.vertical):
-            self.settingsV = np.clip(0.5 * np.random.randn(len(self.settingsV)), -self.act_lim, self.act_lim)
-            self.kicks_0 = self.settingsV * self.action_scale
-
-        if (self.plane == Plane.horizontal):
-            init_positions = np.zeros(len(self.positionsH))  # self.positionsH
-            rmatrix = self.responseH
-
-        if (self.plane == Plane.vertical):
-            init_positions = np.zeros(len(self.positionsV))  # self.positionsV
-            rmatrix = self.responseV
-
-        if 'simulation' in kwargs:
-            simulation = kwargs.get('simulation')
-
-        if simulation:
-            print('init simulation...')
-            return_value =  self.kicks_0
-        else:
-
-            self.current_episode += 1
-            self.current_steps = 0
-            self.action_episode_memory.append([])
-            self.rewards.append([])
-            state = self._calculate_trajectory(rmatrix, self.kicks_0)
-
+        self.episode_length = 0
+        self.success = 0
+        bad_init = True
+        while bad_init:
             if (self.plane == Plane.horizontal):
-                self.positionsH = state
+                self.settingsH = self.action_space.sample()
+                # self.settingsH = 0.1*np.random.randn(self.action_space.shape[0])
+                # self.settingsH = (np.random.uniform(-2, 2, self.action_space.shape[0]))
+                self.kicks_0 = self.settingsH * self.action_scale
+            if (self.plane == Plane.horizontal):
+                init_positions = np.zeros(len(self.positionsH))  # self.positionsH
+                rmatrix = self.responseH
 
-            if (self.plane == Plane.vertical):
-                self.positionsV = state
 
-            # Rescale for agent
-            # state = state
-            return_initial_state = np.array(state * self.state_scale)
-            self.initial_conditions.append([return_initial_state])
-            # print('init', return_initial_state)
-            return_value = return_initial_state
+            if 'simulation' in kwargs:
+                simulation = kwargs.get('simulation')
+
+            if simulation:
+                print('init simulation...')
+                return_value =  self.kicks_0
+            else:
+
+                self.current_episode += 1
+                self.current_steps = 0
+                self.action_episode_memory.append([])
+                self.rewards.append([])
+                state = self._calculate_trajectory(rmatrix, self.kicks_0)
+
+                if (self.plane == Plane.horizontal):
+                    self.positionsH = state
+
+                # Rescale for agent
+                # state = state
+                return_initial_state = np.array(state * self.state_scale)
+                self.initial_conditions.append([return_initial_state])
+                # print('init', return_initial_state)
+                return_value = return_initial_state
+                rms = (np.sqrt(np.mean(np.square(return_initial_state))))
+                bad_init = any(abs(return_value)> 10*abs(self.threshold))
 
         # Cut trajectory
-        if any(abs(return_value)> 10*abs(self.threshold)):
-            return_value[np.argmax(abs(return_value) >= abs(10*self.threshold)):] = 10*self.threshold
+        # if any(abs(return_value)> 10*abs(self.threshold)):
+        #     return_value[np.argmax(abs(return_value) >= abs(10*self.threshold)):] = 10*self.threshold
             # self.is_finalized = True
 
         return return_value
