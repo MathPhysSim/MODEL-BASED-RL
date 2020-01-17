@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import tensorflow as tf
 import gym
@@ -5,8 +7,14 @@ from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import pickle
+import pickle, os
+
 sns.set(style="white")
+# Number of networks, number of starting points pure policy if no randomness after init
+data_folder = 'data_25_25_pure_policy_50_acquisition_long/'
+
+if not os.path.exists(data_folder):
+    os.makedirs(data_folder)
 
 # TODO: Exploration noise decay
 element_actor_list = ['rmi://virtual_awake/logical.RCIBH.430029/K',
@@ -63,8 +71,8 @@ number_bpm_measurements = 30
 simulation = True
 if simulation:
     from simulated_environment_final import e_trajectory_simENV as awakeEnv
-else:
-    from awake_environment_machine import awakeEnv
+# else:
+#     from awake_environment_machine import awakeEnv
 
 reference_position = np.zeros(len(element_state_list_selected))
 scaling = 1e-4
@@ -74,7 +82,8 @@ env = awakeEnv(action_space=element_actor_list_selected, state_space=element_sta
 rms_threshold = env.threshold
 print('rms threshold:', rms_threshold)
 
-def plot_results(env, label):
+
+def plot_results(env, label, **kwargs):
     # plotting
     print('now plotting')
     rewards = env.rewards
@@ -102,18 +111,15 @@ def plot_results(env, label):
 
     fig.suptitle(label, fontsize=12)
 
-
     ax = axs[1]
     ax.set_title('Final reward per episode')  # + plot_suffix)
     ax.set_xlabel('Episodes (1)')
-
 
     color = 'lime'
     ax.axhline(env.threshold, ls=':', c='r')
     ax.set_ylabel('Initial RMS', color=color)  # we already handled the x-label with ax1
     ax.tick_params(axis='y', labelcolor=color)
     ax.plot(starts, color=color)
-
 
     ax1 = plt.twinx(ax)
 
@@ -124,10 +130,13 @@ def plot_results(env, label):
 
     # ax1.set_ylim(-1,0)
     # ax.set_ylim(-1, 0)
+    if 'save_name' in kwargs:
+        plt.savefig(data_folder + kwargs.get('save_name')+'.pdf')
     # plt.savefig(label + '.pdf')
     # plt.savefig(label + '.png')
     # fig.tight_layout()
     plt.show()
+
 
 def make_env():
     # env.seed(123)
@@ -254,7 +263,7 @@ def flatten(tensor):
     return tf.reshape(tensor, shape=(-1,))
 
 
-def test_agent(env_test, agent_op, num_games=10, model_buffer=False):
+def test_agent(env_test, agent_op, num_games=10, model_buffer=False, **kwargs):
     '''
     Test an agent 'agent_op', 'num_games' times
     Return mean and std
@@ -287,7 +296,13 @@ def test_agent(env_test, agent_op, num_games=10, model_buffer=False):
         successes.append(env_test.success)
         games_r.append(game_r)
         lengths.append(length)
-    return np.mean(games_r), np.std(games_r), np.mean(lengths), np.mean(successes)
+    return games_r, lengths, successes
+
+
+def to_pickle(data, data_name):
+    pickling_on = open(data_folder + data_name, "wb")
+    pickle.dump(data, pickling_on)
+    pickling_on.close()
 
 
 class Buffer():
@@ -420,7 +435,7 @@ class NetworkEnv(gym.Wrapper):
         self.len_episode = 0
         self.action_0 = None
 
-        self.success=None
+        self.success = None
 
     def cut_trajectory(self, ob):
         rms = (np.sqrt(np.mean(np.square(ob))))
@@ -463,7 +478,7 @@ class NetworkEnv(gym.Wrapper):
         # print('rew:', rew, done)
         rms = (np.sqrt(np.mean(np.square(obs))))
         # done = -1 * rms > rms_threshold
-        if  -1 * rms > rms_threshold:
+        if -1 * rms > rms_threshold:
             done = True
             self.success = 1
             # rew += .1
@@ -495,7 +510,7 @@ class StructEnv(gym.Wrapper):
         return ob, reward, done, info
 
     def get_episode_reward(self):
-        return self.total_rew /self.len_episode
+        return self.total_rew / self.len_episode
 
     def get_episode_length(self):
         return np.mean(self.len_episode)
@@ -522,6 +537,12 @@ def restore_model(old_model_variables, m_variables):
 
     return tf.group(*restore_m_params)
 
+def number_to_text(it):
+    if it < 10:
+            text = '00' + str(it)
+    elif it < 100:
+            text = '0' + str(it)
+    return text
 
 def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, lam=0.95, number_envs=1,
            critic_iter=10, steps_per_env=100, delta=0.05, algorithm='TRPO', conj_iters=10, minibatch_size=1000,
@@ -924,6 +945,10 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
     converged = False
     ep = -1
     history_data = []
+    ep_data = []
+
+    taken_steps = 0
+
     while not (converged) and ep < num_epochs:
         ep += 1
         # lists to store rewards and length of the trajectories completed
@@ -935,9 +960,38 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             init_log_std = np.ones(act_dim) * np.log(np.random.rand() * 1)
             env.reset()
 
+            if ep==0:
+                env_new = awakeEnv(action_space=element_actor_list_selected, state_space=element_state_list_selected,
+                                   number_bpm_measurements=number_bpm_measurements, noSet=False, debug=True,
+                                   scale=scaling)
+                mn_test, length, success_rate = test_agent(env_new, action_op, num_games=100,
+                                                           model_buffer=False)  #
+                df = pd.concat([pd.DataFrame(mn_test), pd.DataFrame(length),
+                                pd.DataFrame(success_rate)], axis=1)
+                df.columns = ['Ep. rews', 'Ep. lens', 'Ep. success']
+                to_pickle(df, 'Awake_test_init.pkl')
+
+                print(' \nContinuous Test score on awake: ', np.round(np.mean(mn_test), 2),
+                      np.round(np.std(mn_test), 2),
+                      np.round(np.mean(length), 2), np.round(np.mean(success_rate), 2), '\n')
+
+                plot_results(env_new,
+                             'ME-TRPO on AWAKE ep.: , {0[0]}, {0[1]}, {0[2]}, {0[3]}'.format(
+                                 (np.round(np.mean(mn_test), 2),
+                                  np.round(np.std(mn_test), 2),
+                                  np.round(np.mean(length), 2),
+                                  np.round(
+                                      np.mean(success_rate),
+                                      2))))
+
             # iterate over a fixed number of steps
-            # TODO: Changed to rest
-            rest_steps_out = steps_per_env #if ep < 1 else 0
+            # TODO: Changed to rest avoid if not converged empty set
+
+            if taken_steps > 0:
+                rest_steps_out = 0
+            else:
+                rest_steps_out = steps_per_env
+             # if ep < 1 else 0
             # max(0, (ep + 1) * steps_per_env - len(model_buffer))
             print('rest steps', rest_steps_out)
             # rest_steps = steps_per_env
@@ -998,19 +1052,20 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
         best_sim_test = -1e6 * np.ones(num_ensemble_models)
         dynamic_threshold = rms_threshold  # max(1, 1 - ep) * rms_threshold
         dynamic_done = lambda ob: -np.sqrt(np.mean(np.square(ob))) > dynamic_threshold
-        print('Non-Dynamic reward', dynamic_threshold)
+        # print('Non-Dynamic reward', dynamic_threshold)
         current_step_size = len(model_buffer)
         quality = False
-
-        for it in range(50):
+        count = -1
+        for it in range(100):
+            ep_data.append([ep, it, current_step_size])
+            to_pickle(ep_data, 'ep_data.pkl')
             # Create a dynamic simulated environment
             sim_env = NetworkEnv(make_env(), model_op, reward_function, dynamic_done, num_ensemble_models)
             # print('length is:', len(model_buffer))
             print('\n Policy it', it, end='.. \n')
-            simulated_steps = 500
+            simulated_steps = 2000
 
-            for _ in range(50):
-
+            for _ in range(10):
                 ##################### MODEL SIMLUATION #####################
                 obs_batch, act_batch, adv_batch, rtg_batch = simulate_environment(sim_env, action_op_noise,
                                                                                   simulated_steps)
@@ -1020,15 +1075,26 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                 ################# TRPO UPDATE ################
 
             env_new = awakeEnv(action_space=element_actor_list_selected, state_space=element_state_list_selected,
-                           number_bpm_measurements=number_bpm_measurements, noSet=False, debug=True, scale=scaling)
+                               number_bpm_measurements=number_bpm_measurements, noSet=False, debug=True, scale=scaling)
+            mn_test, length, success_rate = test_agent(env_new, action_op, num_games=100,
+                                                       model_buffer=False)  #
+            df = pd.concat([pd.DataFrame(mn_test), pd.DataFrame(length),
+                            pd.DataFrame(success_rate)], axis=1)
+            df.columns = ['Ep. rews', 'Ep. lens', 'Ep. success']
 
-            mn_test, mn_test_std, length, success_rate = test_agent(env_new, action_op, num_games=1000,
-                                                                    model_buffer=False)  #
-            print(' \nContinuous Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2),
-                  np.round(length, 2), np.round(success_rate, 2),'\n')
+            to_pickle(df, 'Awake_test_' + number_to_text(ep) + '_' + number_to_text(it) + '.pkl')
 
-            plot_results(env_new, 'ME-TRPO on AWAKE ep.: , {0[0]}, {0[1]}, {0[2]}, {0[3]}'.format((np.round(mn_test, 2), np.round(mn_test_std, 2),
-                  np.round(length, 2), np.round(success_rate, 2))))
+            print(' \nContinuous Test score on awake: ', np.round(np.mean(mn_test), 2),
+                  np.round(np.std(mn_test), 2),
+                  np.round(np.mean(length), 2), np.round(np.mean(success_rate), 2), '\n')
+
+            plot_results(env_new,
+                         'ME-TRPO on AWAKE ep.: , {0[0]}, {0[1]}, {0[2]}, {0[3]}'.format((np.round(np.mean(mn_test), 2),
+                                                                                          np.round(np.std(mn_test), 2),
+                                                                                          np.round(np.mean(length), 2),
+                                                                                          np.round(
+                                                                                              np.mean(success_rate),
+                                                                                              2))))
 
             # Test the policy on simulated environment.
             if (it + 1) % 1 == 0:
@@ -1038,23 +1104,28 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
 
                 true_rewards = []
                 true_lengths = []
-
+                model_data = []
                 for i in range(num_ensemble_models):
                     sim_m_env = NetworkEnv(make_env(), model_op, reward_function, episode_done, i + 1)
-                    mn_sim_rew, _, mn_sim_len, success_rate = test_agent(sim_m_env, action_op, num_games=100,
-                                                                         model_buffer=False)
-                    sim_rewards.append(mn_sim_rew)
-                    sim_lengths.append(mn_sim_len)
-                    print(mn_sim_rew, ' ', mn_sim_len, end=' -- \n')
+                    mn_sim_rew, mn_sim_len, success_rate = test_agent(sim_m_env, action_op, num_games=100,
+                                                                      model_buffer=False)
 
-                    # mn_test_true, _, length_true, success_rate = test_agent(env_new, action_op, num_games=5
-                                                              # , model_buffer=False)
-                    # true_rewards.append(mn_test_true)
-                    # true_lengths.append(length_true)
+                    sim_rewards.append(np.mean(mn_sim_rew))
+                    sim_lengths.append(np.mean(mn_sim_len))
+                    print(np.mean(mn_sim_rew), ' ', np.mean(mn_sim_len), end=' -- \n')
+
+                    df = pd.concat([pd.DataFrame(mn_sim_rew), pd.DataFrame(mn_sim_len),
+                                    pd.DataFrame(success_rate)], axis=1)
+                    df.columns = ['Ep. rews', 'Ep. lens', 'Ep. success']
+
+                    model_data.append(df)
+                model_all = pd.concat(model_data, keys=range(len(model_data)))
+                # print(model_all)
+                to_pickle(model_all, 'Awake_model_' + number_to_text(ep) + '_' + number_to_text(it) + '.pkl')
+
                 if np.mean(sim_lengths) < 1.25:
                     quality = True
-                # print(pd.concat([pd.DataFrame(sim_lengths),
-                #            pd.DataFrame(sim_rewards)], axis=1))
+
                 try:
                     df = pd.concat([pd.DataFrame(sim_lengths), pd.DataFrame(sim_rewards)], axis=1)
                     df.columns = ['Ep. lens', 'Ep. rews']
@@ -1071,26 +1142,29 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                 sim_rewards = np.array(sim_rewards)
                 # print(best_sim_test, sim_rewards)
                 # stop training if the policy hasn't improved
-                if (np.sum(best_sim_test >= sim_rewards) > int(num_ensemble_models * 0.7)):# \
-                        # or (len(mn_sim_len[mn_sim_len <= 1]) > int(num_ensemble_models * 2 / 3)):
+                if (np.sum(best_sim_test >= sim_rewards) > int(num_ensemble_models * 0.7)):  # \
+                    # or (len(mn_sim_len[mn_sim_len <= 1]) > int(num_ensemble_models * 2 / 3)):
                     print('Break')
-                    mn_test, mn_test_std, length, success_rate = test_agent(env_test, action_op, num_games=10,
-                                                              model_buffer=model_buffer)  #
-                    print(' Test score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2), np.round(length, 2))
+                    mn_test, length, success_rate = test_agent(env_test, action_op, num_games=10,
+                                                               model_buffer=model_buffer)  #
+                    print(' \nTest score on awake: ', np.round(np.mean(mn_test), 2),
+                          np.round(np.std(mn_test), 2),
+                          np.round(np.mean(length), 2), np.round(np.mean(success_rate), 2), '\n')
+
+                    taken_steps = len(model_buffer) - current_step_size
+
                     break
-                    if np.round(length, 2) < 1.2:
-                        converged = True
                 else:
                     best_sim_test = sim_rewards
             if (it + 1) % 10 == 0 and quality:
                 # Testing the policy on a real environment
-                mn_test, mn_test_std, length, success_rate = test_agent(env_test, action_op, num_games=10, model_buffer=model_buffer)
-                print('\nTest score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2), np.round(length, 2),
-                      np.round(length, 2)
-                      )
+                mn_test, length, success_rate = test_agent(env_test, action_op, num_games=10, model_buffer=model_buffer)
+                print(' \nTest score on awake: ', np.round(np.mean(mn_test), 2),
+                      np.round(np.std(mn_test), 2),
+                      np.round(np.mean(length), 2), np.round(np.mean(success_rate), 2), '\n')
 
                 summary = tf.Summary()
-                summary.value.add(tag='test/performance', simple_value=mn_test)
+                summary.value.add(tag='test/performance', simple_value=np.mean(mn_test))
                 file_writer.add_summary(summary, step_count)
                 file_writer.flush()
 
@@ -1098,24 +1172,21 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             #     break
             taken_steps = len(model_buffer) - current_step_size
             print('add steps: ', taken_steps)
-            if taken_steps >= 50:
+            if taken_steps >= 100:
                 print('\n break max steps')
                 break
             rest_steps = len(model_buffer) - current_step_size
     # Testing the policy on a real environment
-    mn_test, mn_test_std, length, success_rate = test_agent(env_test, action_op, num_games=150)  # , model_buffer=model_buffer)
-    print(' Final score on awake: ', np.round(mn_test, 2), np.round(mn_test_std, 2), np.round(length, 2))
-    data_name = 'all_settings.pkl'
-    pickling_on = open(data_name, "wb")
-    pickle.dump(history_data, pickling_on)
-    pickling_on.close()
+    mn_test, length, success_rate = test_agent(env_test, action_op, num_games=150)  # , model_buffer=model_buffer)
+    print(' Final score on awake: ', np.round(np.mean(mn_test), 2),
+          np.round(np.std(mn_test), 2),
+          np.round(np.mean(length), 2), np.round(np.mean(success_rate), 2), '\n')
+    # to_pickle(history_data, 'all_settings.pkl')
+
     # closing environments..
     for env in envs:
         env.close()
     file_writer.close()
-
-
-
 
 
 if __name__ == '__main__':
@@ -1123,9 +1194,9 @@ if __name__ == '__main__':
     random_seed = 222
     tf.set_random_seed(random_seed)
     np.random.seed(random_seed)
-    METRPO('', hidden_sizes=[100, 100], cr_lr=1e-3, gamma=0.999, lam=0.95, num_epochs=6, steps_per_env=50,
+    METRPO('', hidden_sizes=[100, 100], cr_lr=1e-3, gamma=0.999, lam=0.95, num_epochs=10, steps_per_env=50,
            number_envs=1, critic_iter=10, delta=.1, algorithm='TRPO', conj_iters=10, minibatch_size=100,
-           mb_lr=1e-3, model_batch_size=100, simulated_steps=50, num_ensemble_models=10, model_iter=5)
+           mb_lr=1e-3, model_batch_size=100, simulated_steps=50, num_ensemble_models=25, model_iter=5)
 
     # plot the results
-    plot_results(env, 'ME-TRPO on AWAKE')
+    plot_results(env, 'ME-TRPO on AWAKE', save_name = 'On_the_machine')
