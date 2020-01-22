@@ -130,7 +130,7 @@ class e_trajectory_simENV(gym.Env):
             return_reward = -np.sqrt(np.mean(np.square(return_state)))
         self.episode_length += 1
         # return_reward*=self.episode_length
-        return return_state, return_reward, self.is_finalized, {}
+        return return_state, return_reward*self.current_steps, self.is_finalized, {}
 
     def setGolden(self, goldenH, goldenV):
         self.goldenH = goldenH

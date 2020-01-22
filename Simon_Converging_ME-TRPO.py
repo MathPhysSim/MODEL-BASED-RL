@@ -11,7 +11,7 @@ import pickle, os
 
 sns.set(style="white")
 # Number of networks, number of starting points pure policy if no randomness after init
-data_folder = 'data_25_25_pure_policy_50_acquisition_long/'
+data_folder = 'data_10_12_no_policy_acquisition_long_training_new_reward_no_decay_init_change_batch_200_delta_0_01/'
 
 if not os.path.exists(data_folder):
     os.makedirs(data_folder)
@@ -131,7 +131,7 @@ def plot_results(env, label, **kwargs):
     # ax1.set_ylim(-1,0)
     # ax.set_ylim(-1, 0)
     if 'save_name' in kwargs:
-        plt.savefig(data_folder + kwargs.get('save_name')+'.pdf')
+        plt.savefig(data_folder + kwargs.get('save_name') + '.pdf')
     # plt.savefig(label + '.pdf')
     # plt.savefig(label + '.png')
     # fig.tight_layout()
@@ -221,7 +221,7 @@ def backtracking_line_search(Dkl, delta, old_loss, p=0.8):
     return a
 
 
-def GAE(rews, v, v_last, gamma=0.99, lam=0.95):
+def GAE(rews, v, v_last, gamma=0.99, lam=0.97):
     '''
     Generalized Advantage Estimation
     '''
@@ -282,7 +282,7 @@ def test_agent(env_test, agent_op, num_games=10, model_buffer=False, **kwargs):
             a_s, _ = agent_op([o])
             o, r, d, _ = env_test.step(a_s)
             length += 1
-            game_r += r  # TODO: modify (game_r = r)
+            game_r += length * r  # TODO: modify (game_r = r)
 
             if length > 100 and model_buffer:
                 break
@@ -310,7 +310,7 @@ class Buffer():
     Class to store the experience from a unique policy
     '''
 
-    def __init__(self, gamma=0.99, lam=0.95):
+    def __init__(self, gamma=0.99, lam=0.97):
         self.gamma = gamma
         self.lam = lam
         self.adv = []
@@ -389,7 +389,7 @@ class FullBuffer():
 
 
 def simulate_environment(env, policy, simulated_steps):
-    buffer = Buffer(0.999, 0.95)
+    buffer = Buffer(0.99, 0.97)
     # lists to store rewards and length of the trajectories completed
     steps = 0
     number_episodes = 0
@@ -419,7 +419,7 @@ def simulate_environment(env, policy, simulated_steps):
 
         buffer.store(np.array(temp_buf), np.squeeze(policy([obs])[1]))
 
-    print('Sim ep:', number_episodes, end=' \n')
+    # print('Sim ep:', number_episodes, end=' \n')
 
     return buffer.get_batch()
 
@@ -451,15 +451,21 @@ class NetworkEnv(gym.Wrapper):
         self.len_episode = 0
         self.success = 0
         # kwargs['simulation'] = True
-        # self.action_0 = np.random.uniform(low=-.5, high=.5, size=env.action_space.shape[0])  # self.env.reset(**kwargs)
+        bad_init = True
+        while bad_init:
+            self.action_0 = env.action_space.sample()
+            self.obs = self.model_func(np.zeros(env.observation_space.shape[0]), [np.squeeze(self.action_0)],
+                                       np.random.randint(0, self.number_models))
+            bad_init = any(abs(self.obs) > 10 * abs(rms_threshold))
+        # self.env.reset(**kwargs)
         # self.current_action = self.action_0.copy()
         # self.obs = self.model_func(np.zeros(env.observation_space.shape[0]), [np.squeeze(self.current_action)],
         #                            np.random.randint(0, self.number_models))
-        self.obs = self.env.reset()
+        # self.obs = self.env.reset()
         return self.obs
 
     def step(self, action):
-        self.current_action = np.squeeze(action)
+        # self.current_action = np.squeeze(action)
         # predict the next state on a random model np.mean(np.squeeze([self.model_func(self.obs, [np.squeeze(action)], i) for i in range(self.number_models)]))
         obs = self.model_func(self.obs, [np.squeeze(action)], np.random.randint(0, self.number_models))
         # Take the mean of all models
@@ -537,12 +543,37 @@ def restore_model(old_model_variables, m_variables):
 
     return tf.group(*restore_m_params)
 
+
 def number_to_text(it):
     if it < 10:
-            text = '00' + str(it)
+        text = '00' + str(it)
     elif it < 100:
-            text = '0' + str(it)
+        text = '0' + str(it)
     return text
+
+
+def make_hist(values, bins=25):
+    # bins = 25
+    # Create a histogram using numpy
+    counts, bin_edges = np.histogram(values, bins=bins)
+
+    # Fill the fields of the histogram proto
+    hist = tf.HistogramProto()
+    hist.min = float(np.min(values))
+    hist.max = float(np.max(values))
+    hist.num = int(np.prod(values.shape))
+    hist.sum = float(np.sum(values))
+    hist.sum_squares = float(np.sum(values ** 2))
+
+    # Drop the start of the first bin
+    bin_edges = bin_edges[1:]
+
+    # Add bin edges and counts
+    for edge in bin_edges:
+        hist.bucket_limit.append(edge)
+    for c in counts:
+        hist.bucket.append(c)
+    return hist
 
 def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, lam=0.95, number_envs=1,
            critic_iter=10, steps_per_env=100, delta=0.05, algorithm='TRPO', conj_iters=10, minibatch_size=1000,
@@ -716,7 +747,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
     # computational graph of N models
     for i in range(num_ensemble_models):
         with tf.variable_scope('model_' + str(i) + '_nn'):
-            nobs_pred = mlp(act_obs, [100, 100], obs_dim[0], tf.nn.relu, last_activation=None)
+            nobs_pred = mlp(act_obs, [120, 120], obs_dim[0], tf.nn.relu, last_activation=None)
             nobs_pred_m.append(nobs_pred)
 
         m_loss = tf.reduce_mean((nobs_ph - nobs_pred) ** 2)
@@ -761,7 +792,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
 
     hyp_str = '-spe_' + str(steps_per_env) + '-envs_' + str(number_envs) + '-cr_lr' + str(cr_lr) + '-crit_it_' + str(
         critic_iter) + '-delta_' + str(delta) + '-conj_iters_' + str(conj_iters)
-    file_writer = tf.summary.FileWriter('log_dir/' + env_name + '/' + algorithm + '_' + clock_time + '_' + hyp_str,
+    file_writer = tf.summary.FileWriter('log_directory/' + env_name + '/' + algorithm + '_' + clock_time + '_' + hyp_str,
                                         tf.get_default_graph())
 
     # create a session
@@ -954,13 +985,14 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
         # lists to store rewards and length of the trajectories completed
         batch_rew = []
         batch_len = []
+        success = []
         print('============================', ep, '============================')
         # Execute in serial the environment, storing temporarily the trajectories.
         for env in envs:
             init_log_std = np.ones(act_dim) * np.log(np.random.rand() * 1)
             env.reset()
 
-            if ep==0:
+            if ep == 0:
                 env_new = awakeEnv(action_space=element_actor_list_selected, state_space=element_state_list_selected,
                                    number_bpm_measurements=number_bpm_measurements, noSet=False, debug=True,
                                    scale=scaling)
@@ -991,7 +1023,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                 rest_steps_out = 0
             else:
                 rest_steps_out = steps_per_env
-             # if ep < 1 else 0
+            # if ep < 1 else 0
             # max(0, (ep + 1) * steps_per_env - len(model_buffer))
             print('rest steps', rest_steps_out)
             # rest_steps = steps_per_env
@@ -1018,11 +1050,14 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                 env.n_obs = obs2.copy()
                 step_count += 1
 
+                # success_full
+
                 if done:
                     batch_rew.append(env.get_episode_reward())
                     # print(env.get_episode_reward())
                     batch_len.append(env.get_episode_length())
                     env.reset()
+                    # TODO: change the noise to decaying one
                     init_log_std = np.ones(act_dim) * np.log(np.random.rand() * 1)
 
         print('Ep:%d Rew:%.2f -- Len:%.2f -- Step:%d' % (ep, np.mean(batch_rew), np.mean(batch_len), step_count))
@@ -1063,9 +1098,9 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             sim_env = NetworkEnv(make_env(), model_op, reward_function, dynamic_done, num_ensemble_models)
             # print('length is:', len(model_buffer))
             print('\n Policy it', it, end='.. \n')
-            simulated_steps = 2000
+            simulated_steps = 100
 
-            for _ in range(10):
+            for _ in range(25):
                 ##################### MODEL SIMLUATION #####################
                 obs_batch, act_batch, adv_batch, rtg_batch = simulate_environment(sim_env, action_op_noise,
                                                                                   simulated_steps)
@@ -1078,6 +1113,20 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                                number_bpm_measurements=number_bpm_measurements, noSet=False, debug=True, scale=scaling)
             mn_test, length, success_rate = test_agent(env_new, action_op, num_games=100,
                                                        model_buffer=False)  #
+
+            summary = tf.Summary()
+            hist = make_hist(np.array(length))
+            summary.value.add(tag='hist/lengths',   histo =hist)
+            hist = make_hist(np.array(mn_test))
+            summary.value.add(tag='hist/rewards',   histo =hist)
+            summary.value.add(tag='test/success', simple_value=np.mean(success_rate))
+            summary.value.add(tag='test/lengths', simple_value=np.mean(length))
+            summary.value.add(tag='test/rewards', simple_value=np.mean(mn_test))
+            summary.value.add(tag='test/data', simple_value=step_count)
+            # summary.value.add(tag='test/rewards', histo=hist)
+            # file_writer.add_summary(summary, step_count)
+            # file_writer.flush()
+
             df = pd.concat([pd.DataFrame(mn_test), pd.DataFrame(length),
                             pd.DataFrame(success_rate)], axis=1)
             df.columns = ['Ep. rews', 'Ep. lens', 'Ep. success']
@@ -1088,17 +1137,19 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                   np.round(np.std(mn_test), 2),
                   np.round(np.mean(length), 2), np.round(np.mean(success_rate), 2), '\n')
 
-            plot_results(env_new,
-                         'ME-TRPO on AWAKE ep.: , {0[0]}, {0[1]}, {0[2]}, {0[3]}'.format((np.round(np.mean(mn_test), 2),
-                                                                                          np.round(np.std(mn_test), 2),
-                                                                                          np.round(np.mean(length), 2),
-                                                                                          np.round(
-                                                                                              np.mean(success_rate),
-                                                                                              2))))
+            # plot_results(env_new,
+            #              'ME-TRPO on AWAKE ep.: , {0[0]}, {0[1]}, {0[2]}, {0[3]}'.format((np.round(np.mean(mn_test), 2),
+            #                                                                               np.round(np.std(mn_test), 2),
+            #                                                                               np.round(np.mean(length), 2),
+            #                                                                               np.round(
+            #                                                                                   np.mean(success_rate),
+            #                                                                                   2))))
+
+
 
             # Test the policy on simulated environment.
             if (it + 1) % 1 == 0:
-                print('\nSimulated test:', end=' -- \n')
+                print('\nSimulated test:', end=' -- ')
                 sim_rewards = []
                 sim_lengths = []
 
@@ -1112,66 +1163,76 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
 
                     sim_rewards.append(np.mean(mn_sim_rew))
                     sim_lengths.append(np.mean(mn_sim_len))
-                    print(np.mean(mn_sim_rew), ' ', np.mean(mn_sim_len), end=' -- \n')
+                    # print(np.mean(mn_sim_rew), ' ', np.mean(mn_sim_len), end=' -- \n')
 
                     df = pd.concat([pd.DataFrame(mn_sim_rew), pd.DataFrame(mn_sim_len),
                                     pd.DataFrame(success_rate)], axis=1)
                     df.columns = ['Ep. rews', 'Ep. lens', 'Ep. success']
 
                     model_data.append(df)
+                print(np.round(np.mean(sim_rewards),3), ' ', np.round(np.mean(sim_lengths),3), end=' --')
+                hist = make_hist(np.array(sim_rewards))
+                summary.value.add(tag='hist/sim_rewards', histo=hist)
+                hist = make_hist(np.array(sim_lengths))
+                summary.value.add(tag='hist/sim_lengths', histo=hist)
+                # summary.value.add(tag='test/success', simple_value=np.mean(success_rate))
+                summary.value.add(tag='test/sim_length', simple_value=np.mean(sim_lengths))
+                summary.value.add(tag='test/sim_reward', simple_value=np.mean(sim_rewards))
+                summary.value.add(tag='test/data', simple_value=step_count)
+                # summary.value.add(tag='test/rewards', histo=hist)
+                file_writer.add_summary(summary, step_count)
+                file_writer.flush()
+
                 model_all = pd.concat(model_data, keys=range(len(model_data)))
                 # print(model_all)
                 to_pickle(model_all, 'Awake_model_' + number_to_text(ep) + '_' + number_to_text(it) + '.pkl')
 
-                if np.mean(sim_lengths) < 1.25:
-                    quality = True
+                # if np.mean(sim_lengths) < 1.25:
+                #     quality = True
 
-                try:
-                    df = pd.concat([pd.DataFrame(sim_lengths), pd.DataFrame(sim_rewards)], axis=1)
-                    df.columns = ['Ep. lens', 'Ep. rews']
-                    history_data.append(df)
-                    g = sns.PairGrid(df, diag_sharey=False)
-                    g.map_lower(sns.kdeplot)
-                    g.map_upper(sns.scatterplot)
-                    g.map_diag(sns.kdeplot, lw=3)
-                    # plt.xlim(1, 3)
-                    plt.show()
-                except:
-                    print('')
+                # try:
+                #     df = pd.concat([pd.DataFrame(sim_lengths), pd.DataFrame(sim_rewards)], axis=1)
+                #     df.columns = ['Ep. lens', 'Ep. rews']
+                #     history_data.append(df)
+                #     g = sns.PairGrid(df, diag_sharey=False)
+                #     g.map_lower(sns.kdeplot)
+                #     g.map_upper(sns.scatterplot)
+                #     g.map_diag(sns.kdeplot, lw=3)
+                #     # plt.xlim(1, 3)
+                #     plt.show()
+                # except:
+                #     print('')
                 print("")
-                sim_rewards = np.array(sim_rewards)
+                sim_rewards = np.array(np.round(sim_rewards,3))
                 # print(best_sim_test, sim_rewards)
                 # stop training if the policy hasn't improved
                 if (np.sum(best_sim_test >= sim_rewards) > int(num_ensemble_models * 0.7)):  # \
                     # or (len(mn_sim_len[mn_sim_len <= 1]) > int(num_ensemble_models * 2 / 3)):
                     print('Break')
-                    mn_test, length, success_rate = test_agent(env_test, action_op, num_games=10,
-                                                               model_buffer=model_buffer)  #
-                    print(' \nTest score on awake: ', np.round(np.mean(mn_test), 2),
-                          np.round(np.std(mn_test), 2),
-                          np.round(np.mean(length), 2), np.round(np.mean(success_rate), 2), '\n')
-
-                    taken_steps = len(model_buffer) - current_step_size
+                    # mn_test, length, success_rate = test_agent(env_test, action_op, num_games=10,
+                    #                                            model_buffer=model_buffer)  #
+                    # print(' \nTest score on awake: ', np.round(np.mean(mn_test), 2),
+                    #       np.round(np.std(mn_test), 2),
+                    #       np.round(np.mean(length), 2), np.round(np.mean(success_rate), 2), '\n')
+                    #
+                    # taken_steps = len(model_buffer) - current_step_size
 
                     break
                 else:
                     best_sim_test = sim_rewards
-            if (it + 1) % 10 == 0 and quality:
+            if True:#(it + 1) % 10 == 0 and quality:
                 # Testing the policy on a real environment
-                mn_test, length, success_rate = test_agent(env_test, action_op, num_games=10, model_buffer=model_buffer)
-                print(' \nTest score on awake: ', np.round(np.mean(mn_test), 2),
-                      np.round(np.std(mn_test), 2),
-                      np.round(np.mean(length), 2), np.round(np.mean(success_rate), 2), '\n')
+                # mn_test, length, success_rate = test_agent(env_test, action_op, num_games=10, model_buffer=model_buffer)
+                # print(' \nTest score on awake: ', np.round(np.mean(mn_test), 2),
+                #       np.round(np.std(mn_test), 2),
+                #       np.round(np.mean(length), 2), np.round(np.mean(success_rate), 2), '\n')
 
-                summary = tf.Summary()
-                summary.value.add(tag='test/performance', simple_value=np.mean(mn_test))
-                file_writer.add_summary(summary, step_count)
-                file_writer.flush()
+                pass
 
             # if mn_test > env_test.threshold:
             #     break
             taken_steps = len(model_buffer) - current_step_size
-            print('add steps: ', taken_steps)
+            # print('add steps: ', taken_steps)
             if taken_steps >= 100:
                 print('\n break max steps')
                 break
@@ -1194,9 +1255,9 @@ if __name__ == '__main__':
     random_seed = 222
     tf.set_random_seed(random_seed)
     np.random.seed(random_seed)
-    METRPO('', hidden_sizes=[100, 100], cr_lr=1e-3, gamma=0.999, lam=0.95, num_epochs=10, steps_per_env=50,
-           number_envs=1, critic_iter=10, delta=.1, algorithm='TRPO', conj_iters=10, minibatch_size=100,
-           mb_lr=1e-3, model_batch_size=100, simulated_steps=50, num_ensemble_models=25, model_iter=5)
+    METRPO('', hidden_sizes=[100, 100], cr_lr=1e-3, gamma=0.99, lam=0.97, num_epochs=25, steps_per_env=12,
+           number_envs=1, critic_iter=10, delta=0.01, algorithm='TRPO', conj_iters=10, minibatch_size=200,
+           mb_lr=1e-3, model_batch_size=200, simulated_steps=50, num_ensemble_models=10, model_iter=5)
 
     # plot the results
-    plot_results(env, 'ME-TRPO on AWAKE', save_name = 'On_the_machine')
+    plot_results(env, 'ME-TRPO on AWAKE', save_name='On_the_machine')

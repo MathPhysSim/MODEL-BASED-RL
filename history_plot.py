@@ -20,7 +20,7 @@ index = []
 
 
 
-data_folder = 'data_25_25_pure_policy_50_acquisition_long/'
+data_folder = 'data_25_10_no_policy_acquisition_short_training_new_reward_decay_rand/'
 
 directories = os.listdir(data_folder)
 directories.sort()
@@ -105,9 +105,14 @@ ax=axs[0].twinx()
 sns.lineplot(x="level_0", y="Ep. rews", data=df_awake, ax=ax, color="coral")
 plt.grid(True)
 
+color = 'dodgerblue'
 df_awake.groupby('level_0').mean()['Ep. success'].plot(ax=axs[1])
+axs[1].set_ylabel('Success rate', color=color)
+
 ax = axs[1].twinx()
-ep_data['nr data points'].plot(ax=ax,drawstyle="steps" , color='lime')
+color = 'lime'
+ep_data['nr data points'].plot(ax=ax,drawstyle="steps" , color=color)
+ax.set_ylabel('Nr. of data points', color=color)
 plt.grid(True)
 # #
 plt.savefig(data_folder+'progress_awake.pdf')
