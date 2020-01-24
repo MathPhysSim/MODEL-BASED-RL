@@ -11,7 +11,7 @@ import pickle, os
 
 sns.set(style="white")
 # Number of networks, number of starting points pure policy if no randomness after init
-data_folder = 'data_10_12_no_policy_acquisition_long_training_new_reward_no_decay_init_change_batch_200_delta_0_01/'
+data_folder = 'data_10_10_no_policy_acquisition_15_epochs_new_reward_no_decay_init_change_batch_150_delta_0_01_long_stats/'
 
 if not os.path.exists(data_folder):
     os.makedirs(data_folder)
@@ -575,6 +575,8 @@ def make_hist(values, bins=25):
         hist.bucket.append(c)
     return hist
 
+ep_data_global = []
+
 def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, lam=0.95, number_envs=1,
            critic_iter=10, steps_per_env=100, delta=0.05, algorithm='TRPO', conj_iters=10, minibatch_size=1000,
            mb_lr=0.0001, model_batch_size=512, simulated_steps=300, num_ensemble_models=2, model_iter=15):
@@ -747,7 +749,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
     # computational graph of N models
     for i in range(num_ensemble_models):
         with tf.variable_scope('model_' + str(i) + '_nn'):
-            nobs_pred = mlp(act_obs, [120, 120], obs_dim[0], tf.nn.relu, last_activation=None)
+            nobs_pred = mlp(act_obs, [100, 100], obs_dim[0], tf.nn.relu, last_activation=None)
             nobs_pred_m.append(nobs_pred)
 
         m_loss = tf.reduce_mean((nobs_ph - nobs_pred) ** 2)
@@ -978,6 +980,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
     history_data = []
     ep_data = []
 
+
     taken_steps = 0
 
     while not (converged) and ep < num_epochs:
@@ -1019,13 +1022,16 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             # iterate over a fixed number of steps
             # TODO: Changed to rest avoid if not converged empty set
 
-            if taken_steps > 0:
-                rest_steps_out = 0
-            else:
-                rest_steps_out = steps_per_env
+            # if ep<1:
+            #     rest_steps_out = 0
+            # else:
+            rest_steps_out = steps_per_env
             # if ep < 1 else 0
             # max(0, (ep + 1) * steps_per_env - len(model_buffer))
-            print('rest steps', rest_steps_out)
+            # To avoid multiples of 5 since there seems to be a bug in tensorflow
+            if len(model_buffer)%300 == 0:
+                rest_steps_out += 4
+                print('rest steps', rest_steps_out)
             # rest_steps = steps_per_env
             for _ in range(rest_steps_out):
                 # run the policy
@@ -1093,6 +1099,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
         count = -1
         for it in range(100):
             ep_data.append([ep, it, current_step_size])
+            ep_data_global.append([ep, it, current_step_size])
             to_pickle(ep_data, 'ep_data.pkl')
             # Create a dynamic simulated environment
             sim_env = NetworkEnv(make_env(), model_op, reward_function, dynamic_done, num_ensemble_models)
@@ -1134,7 +1141,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             to_pickle(df, 'Awake_test_' + number_to_text(ep) + '_' + number_to_text(it) + '.pkl')
 
             print(' \nContinuous Test score on awake: ', np.round(np.mean(mn_test), 2),
-                  np.round(np.std(mn_test), 2),
+                  # np.round(np.std(mn_test), 2),
                   np.round(np.mean(length), 2), np.round(np.mean(success_rate), 2), '\n')
 
             # plot_results(env_new,
@@ -1255,9 +1262,9 @@ if __name__ == '__main__':
     random_seed = 222
     tf.set_random_seed(random_seed)
     np.random.seed(random_seed)
-    METRPO('', hidden_sizes=[100, 100], cr_lr=1e-3, gamma=0.99, lam=0.97, num_epochs=25, steps_per_env=12,
-           number_envs=1, critic_iter=10, delta=0.01, algorithm='TRPO', conj_iters=10, minibatch_size=200,
-           mb_lr=1e-3, model_batch_size=200, simulated_steps=50, num_ensemble_models=10, model_iter=5)
+    METRPO('', hidden_sizes=[100, 100], cr_lr=1e-3, gamma=0.99, lam=0.97, num_epochs=15, steps_per_env=10,
+           number_envs=1, critic_iter=10, delta=0.01, algorithm='TRPO', conj_iters=10, minibatch_size=150,
+           mb_lr=1e-3, model_batch_size=150, simulated_steps=50, num_ensemble_models=10, model_iter=50)
 
     # plot the results
-    plot_results(env, 'ME-TRPO on AWAKE', save_name='On_the_machine')
+    plot_results(env, 'ME-TRPO on AWAKE', save_name='On_the_machine', episode_data = ep_data)
