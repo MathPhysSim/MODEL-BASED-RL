@@ -93,6 +93,8 @@ def plot_results(env, label, **kwargs):
     finals = []
     starts = []
 
+
+
     # init_states = pd.read_pickle('/Users/shirlaen/PycharmProjects/DeepLearning/spinningup/Environments/initData')
 
     for i in range(len(rewards)):
@@ -101,13 +103,28 @@ def plot_results(env, label, **kwargs):
             starts.append(-np.sqrt(np.mean(np.square(initial_states[i]))))
             iterations.append(len(rewards[i]))
 
-    plot_suffix = f', number of iterations: {env.TOTAL_COUNTER}, AWAKE time: {env.TOTAL_COUNTER / 600:.1f} h'
+
 
     fig, axs = plt.subplots(2, 1)  # , constrained_layout=True)
 
     ax = axs[0]
     ax.plot(iterations)
+
+
+    ax1 = plt.twinx(ax)
+    integrated_steps = np.squeeze(np.cumsum(iterations))
+    ax1.plot(integrated_steps)
+    if 'episode_data' in kwargs:
+        training_steps = kwargs.get('episode_data')
+        training_end = np.argmax(integrated_steps >= training_steps)
+        ax.axvspan(0, training_end, facecolor='#2ca02c', alpha=0.5)
+        counts = training_end
+    else:
+        counts = env.TOTAL_COUNTER
+
+    plot_suffix = f', number of iterations: {counts}, AWAKE time: {counts / 600:.1f} h'
     ax.set_title('Iterations' + plot_suffix)
+
 
     fig.suptitle(label, fontsize=12)
 
@@ -1099,7 +1116,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
         count = -1
         for it in range(100):
             ep_data.append([ep, it, current_step_size])
-            ep_data_global.append([ep, it, current_step_size])
+            # ep_data_global.append([ep, it, current_step_size])
             to_pickle(ep_data, 'ep_data.pkl')
             # Create a dynamic simulated environment
             sim_env = NetworkEnv(make_env(), model_op, reward_function, dynamic_done, num_ensemble_models)
@@ -1244,8 +1261,9 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                 print('\n break max steps')
                 break
             rest_steps = len(model_buffer) - current_step_size
+    ep_data_global.append(len(model_buffer))
     # Testing the policy on a real environment
-    mn_test, length, success_rate = test_agent(env_test, action_op, num_games=150)  # , model_buffer=model_buffer)
+    mn_test, length, success_rate = test_agent(env_test, action_op, num_games=250)  # , model_buffer=model_buffer)
     print(' Final score on awake: ', np.round(np.mean(mn_test), 2),
           np.round(np.std(mn_test), 2),
           np.round(np.mean(length), 2), np.round(np.mean(success_rate), 2), '\n')
@@ -1267,4 +1285,4 @@ if __name__ == '__main__':
            mb_lr=1e-3, model_batch_size=150, simulated_steps=50, num_ensemble_models=10, model_iter=50)
 
     # plot the results
-    plot_results(env, 'ME-TRPO on AWAKE', save_name='On_the_machine', episode_data = ep_data)
+    plot_results(env, 'ME-TRPO on AWAKE', save_name='On_the_machine', episode_data = ep_data_global[0])
