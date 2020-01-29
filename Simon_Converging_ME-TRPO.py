@@ -11,7 +11,7 @@ import pickle, os
 
 sns.set(style="white")
 # Number of networks, number of starting points pure policy if no randomness after init
-data_folder = 'data_10_10_no_policy_acquisition_15_epochs_new_reward_no_decay_init_change_batch_150_delta_0_01_long_stats/'
+data_folder = 'low_thresholde_data_10_10_no_policy_acquisition_15_epochs_new_reward_no_decay_init_change_batch_150_delta_0_01_long_stats/'
 
 if not os.path.exists(data_folder):
     os.makedirs(data_folder)
@@ -279,6 +279,10 @@ def flatten(tensor):
     '''
     return tf.reshape(tensor, shape=(-1,))
 
+def to_pickle(data, data_name):
+    pickling_on = open(data_folder + data_name, "wb")
+    pickle.dump(data, pickling_on)
+    pickling_on.close()
 
 def test_agent(env_test, agent_op, num_games=10, model_buffer=False, **kwargs):
     '''
@@ -314,12 +318,6 @@ def test_agent(env_test, agent_op, num_games=10, model_buffer=False, **kwargs):
         games_r.append(game_r)
         lengths.append(length)
     return games_r, lengths, successes
-
-
-def to_pickle(data, data_name):
-    pickling_on = open(data_folder + data_name, "wb")
-    pickle.dump(data, pickling_on)
-    pickling_on.close()
 
 
 class Buffer():
@@ -1262,7 +1260,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                 break
             rest_steps = len(model_buffer) - current_step_size
     ep_data_global.append(len(model_buffer))
-    # Testing the policy on a real environment
+    # Final testing the policy on a real environment
     mn_test, length, success_rate = test_agent(env_test, action_op, num_games=250)  # , model_buffer=model_buffer)
     print(' Final score on awake: ', np.round(np.mean(mn_test), 2),
           np.round(np.std(mn_test), 2),
