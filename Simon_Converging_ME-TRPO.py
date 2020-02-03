@@ -11,7 +11,7 @@ import pickle, os
 
 sns.set(style="white")
 # Number of networks, number of starting points pure policy if no randomness after init
-data_folder = 'low_thresholde_data_10_10_no_policy_acquisition_15_epochs_new_reward_no_decay_init_change_batch_150_delta_0_01_long_stats/'
+data_folder = 'low_threshold_data_20_10_no_policy_acquisition_5_epochs_new_reward_no_decay_init_change_batch_150_delta_0_01_long_stats/ '
 
 if not os.path.exists(data_folder):
     os.makedirs(data_folder)
@@ -93,8 +93,6 @@ def plot_results(env, label, **kwargs):
     finals = []
     starts = []
 
-
-
     # init_states = pd.read_pickle('/Users/shirlaen/PycharmProjects/DeepLearning/spinningup/Environments/initData')
 
     for i in range(len(rewards)):
@@ -103,13 +101,10 @@ def plot_results(env, label, **kwargs):
             starts.append(-np.sqrt(np.mean(np.square(initial_states[i]))))
             iterations.append(len(rewards[i]))
 
-
-
     fig, axs = plt.subplots(2, 1)  # , constrained_layout=True)
 
     ax = axs[0]
     ax.plot(iterations)
-
 
     ax1 = plt.twinx(ax)
     integrated_steps = np.squeeze(np.cumsum(iterations))
@@ -124,7 +119,6 @@ def plot_results(env, label, **kwargs):
 
     plot_suffix = f', number of iterations: {counts}, AWAKE time: {counts / 600:.1f} h'
     ax.set_title('Iterations' + plot_suffix)
-
 
     fig.suptitle(label, fontsize=12)
 
@@ -279,10 +273,12 @@ def flatten(tensor):
     '''
     return tf.reshape(tensor, shape=(-1,))
 
+
 def to_pickle(data, data_name):
     pickling_on = open(data_folder + data_name, "wb")
     pickle.dump(data, pickling_on)
     pickling_on.close()
+
 
 def test_agent(env_test, agent_op, num_games=10, model_buffer=False, **kwargs):
     '''
@@ -590,7 +586,9 @@ def make_hist(values, bins=25):
         hist.bucket.append(c)
     return hist
 
+
 ep_data_global = []
+
 
 def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, lam=0.95, number_envs=1,
            critic_iter=10, steps_per_env=100, delta=0.05, algorithm='TRPO', conj_iters=10, minibatch_size=1000,
@@ -786,7 +784,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
     clock_time = "{}_{}.{}.{}".format(now.day, now.hour, now.minute, now.second)
     print('Time:', clock_time)
 
-    # Set scalars and hisograms for TensorBoard
+    # Set scalars and histograms for TensorBoard
     tf.summary.scalar('p_loss', p_loss, collections=['train'])
     tf.summary.scalar('v_loss', v_loss, collections=['train'])
     tf.summary.scalar('p_divergence', diverg, collections=['train'])
@@ -809,8 +807,9 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
 
     hyp_str = '-spe_' + str(steps_per_env) + '-envs_' + str(number_envs) + '-cr_lr' + str(cr_lr) + '-crit_it_' + str(
         critic_iter) + '-delta_' + str(delta) + '-conj_iters_' + str(conj_iters)
-    file_writer = tf.summary.FileWriter('log_directory/' + env_name + '/' + algorithm + '_' + clock_time + '_' + hyp_str,
-                                        tf.get_default_graph())
+    file_writer = tf.summary.FileWriter(
+        'log_directory/' + env_name + '/' + algorithm + '_' + clock_time + '_' + hyp_str,
+        tf.get_default_graph())
 
     # create a session
     sess = tf.Session()
@@ -995,7 +994,6 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
     history_data = []
     ep_data = []
 
-
     taken_steps = 0
 
     while not (converged) and ep < num_epochs:
@@ -1044,7 +1042,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             # if ep < 1 else 0
             # max(0, (ep + 1) * steps_per_env - len(model_buffer))
             # To avoid multiples of 5 since there seems to be a bug in tensorflow
-            if len(model_buffer)%300 == 0:
+            if len(model_buffer) % 300 == 0:
                 rest_steps_out += 4
                 print('rest steps', rest_steps_out)
             # rest_steps = steps_per_env
@@ -1131,16 +1129,19 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                 policy_update(obs_batch, act_batch, adv_batch, rtg_batch)
                 ################# TRPO UPDATE ################
 
+            # TODO: Remove in real training
+            # ----------------------------------------------------------------------------------------
             env_new = awakeEnv(action_space=element_actor_list_selected, state_space=element_state_list_selected,
                                number_bpm_measurements=number_bpm_measurements, noSet=False, debug=True, scale=scaling)
             mn_test, length, success_rate = test_agent(env_new, action_op, num_games=100,
                                                        model_buffer=False)  #
+            # ----------------------------------------------------------------------------------------
 
             summary = tf.Summary()
             hist = make_hist(np.array(length))
-            summary.value.add(tag='hist/lengths',   histo =hist)
+            summary.value.add(tag='hist/lengths', histo=hist)
             hist = make_hist(np.array(mn_test))
-            summary.value.add(tag='hist/rewards',   histo =hist)
+            summary.value.add(tag='hist/rewards', histo=hist)
             summary.value.add(tag='test/success', simple_value=np.mean(success_rate))
             summary.value.add(tag='test/lengths', simple_value=np.mean(length))
             summary.value.add(tag='test/rewards', simple_value=np.mean(mn_test))
@@ -1167,8 +1168,6 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             #                                                                                   np.mean(success_rate),
             #                                                                                   2))))
 
-
-
             # Test the policy on simulated environment.
             if (it + 1) % 1 == 0:
                 print('\nSimulated test:', end=' -- ')
@@ -1192,7 +1191,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                     df.columns = ['Ep. rews', 'Ep. lens', 'Ep. success']
 
                     model_data.append(df)
-                print(np.round(np.mean(sim_rewards),3), ' ', np.round(np.mean(sim_lengths),3), end=' --')
+                print(np.round(np.mean(sim_rewards), 3), ' ', np.round(np.mean(sim_lengths), 3), end=' --')
                 hist = make_hist(np.array(sim_rewards))
                 summary.value.add(tag='hist/sim_rewards', histo=hist)
                 hist = make_hist(np.array(sim_lengths))
@@ -1225,7 +1224,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                 # except:
                 #     print('')
                 print("")
-                sim_rewards = np.array(np.round(sim_rewards,3))
+                sim_rewards = np.array(np.round(sim_rewards, 3))
                 # print(best_sim_test, sim_rewards)
                 # stop training if the policy hasn't improved
                 if (np.sum(best_sim_test >= sim_rewards) > int(num_ensemble_models * 0.7)):  # \
@@ -1242,7 +1241,7 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
                     break
                 else:
                     best_sim_test = sim_rewards
-            if True:#(it + 1) % 10 == 0 and quality:
+            if True:  # (it + 1) % 10 == 0 and quality:
                 # Testing the policy on a real environment
                 # mn_test, length, success_rate = test_agent(env_test, action_op, num_games=10, model_buffer=model_buffer)
                 # print(' \nTest score on awake: ', np.round(np.mean(mn_test), 2),
@@ -1255,9 +1254,9 @@ def METRPO(env_name, hidden_sizes=[32], cr_lr=5e-3, num_epochs=50, gamma=0.99, l
             #     break
             taken_steps = len(model_buffer) - current_step_size
             # print('add steps: ', taken_steps)
-            if taken_steps >= 100:
-                print('\n break max steps')
-                break
+            # if taken_steps >= 100:
+            #     print('\n break max steps')
+            #     break
             rest_steps = len(model_buffer) - current_step_size
     ep_data_global.append(len(model_buffer))
     # Final testing the policy on a real environment
@@ -1278,9 +1277,10 @@ if __name__ == '__main__':
     random_seed = 222
     tf.set_random_seed(random_seed)
     np.random.seed(random_seed)
-    METRPO('', hidden_sizes=[100, 100], cr_lr=1e-3, gamma=0.99, lam=0.97, num_epochs=15, steps_per_env=10,
-           number_envs=1, critic_iter=10, delta=0.01, algorithm='TRPO', conj_iters=10, minibatch_size=150,
-           mb_lr=1e-3, model_batch_size=150, simulated_steps=50, num_ensemble_models=10, model_iter=50)
+    METRPO('', hidden_sizes=[100, 100], cr_lr=1e-3, gamma=0.99, lam=0.95, critic_iter=10, delta=0.01, algorithm='TRPO',
+           conj_iters=10, minibatch_size=150,
+           num_epochs=5, steps_per_env=10, number_envs=1, mb_lr=1e-3, model_batch_size=150, simulated_steps=50,
+           num_ensemble_models=20, model_iter=5)
 
     # plot the results
-    plot_results(env, 'ME-TRPO on AWAKE', save_name='On_the_machine', episode_data = ep_data_global[0])
+    plot_results(env, 'ME-TRPO on AWAKE', save_name='On_the_machine', episode_data=ep_data_global[0])
