@@ -294,30 +294,6 @@ if __name__ == '__main__':
         res = opt.fmin_cobyla(objective, start_vector, [constr], rhobeg=rhobeg, rhoend=.1)
         print(res)
 
-    if False:
-        # Bounded region of parameter space
-        pbounds = dict([('x' + str(i), (environment_instance.action_space.low[0],
-                                        environment_instance.action_space.high[0])) for i in range(1, 12)])
-
-
-        def black_box_function(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11):
-            func_val = -1 * objective(np.array([x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, ]))
-            return func_val
-
-
-        optimizer = BayesianOptimization(
-            f=black_box_function,
-            pbounds=pbounds,
-            verbose=2,  # verbose = 1 prints only when a maximum is observed, verbose = 0 is silent
-            random_state=3, )
-
-        optimizer.maximize(
-            init_points=25,
-            n_iter=100,
-            acq="ucb"
-        )
-        objective(np.array([optimizer.max['params'][x] for x in optimizer.max['params']]))
-
     fig, axs = plt.subplots(2, sharex=True)
     axs[1].plot(rews)
 

@@ -1,0 +1,45 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# TensorFlow / training outputs
+log_dir/
+checkpoints/
+*.ckpt*
+
+# Data / experiment outputs
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+
+# Matplotlib outputs (keep specific results images)
+!NAFon_AWAKE.png
+!On_the_machine.png
+
+# Jupyter
+.ipynb_checkpoints/
