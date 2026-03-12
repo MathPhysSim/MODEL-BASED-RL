@@ -1,4 +1,4 @@
-# 🧠 Model-Based Reinforcement Learning for AWAKE
+# Model-Based Reinforcement Learning for AWAKE
 
 [![Python 3.7+](https://img.shields.io/badge/Python-3.7%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -8,20 +8,20 @@
 
 ---
 
-## 📋 Overview
+## Overview
 
 This repository implements **Model-Based Reinforcement Learning** algorithms for correcting electron beam trajectories in the AWAKE transfer line (TT43) at CERN. The key idea is to learn an *ensemble of environment models* from limited interaction data and then use these models to generate simulated rollouts for policy improvement via TRPO, dramatically reducing the number of real machine interactions needed.
 
 ### Key Features
 
-- 🔄 **Model-Ensemble TRPO (ME-TRPO)** — Learns an ensemble of neural network dynamics models and uses them for on-policy rollout generation
-- 🎯 **NAF with Prioritised Experience Replay (PER-NAF)** — Normalised Advantage Function for continuous control with prioritised replay
-- 🔬 **ME-MFRL** — Hybrid framework combining model-based rollouts with model-free RL agents (NAF)
-- 🏗️ **AWAKE Simulation Environment** — Physics-based simulation of the AWAKE electron beamline using Twiss parameters and response matrices
+- **Model-Ensemble TRPO (ME-TRPO)** — Learns an ensemble of neural network dynamics models and uses them for on-policy rollout generation
+- **NAF with Prioritised Experience Replay (PER-NAF)** — Normalised Advantage Function for continuous control with prioritised replay
+- **ME-MFRL** — Hybrid framework combining model-based rollouts with model-free RL agents (NAF)
+- **AWAKE Simulation Environment** — Physics-based simulation of the AWAKE electron beamline using Twiss parameters and response matrices
 
 ---
 
-## 🏛️ Architecture
+## Architecture
 
 ```mermaid
 graph TD
@@ -42,7 +42,7 @@ graph TD
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 MODEL-BASED-RL/
@@ -76,7 +76,7 @@ MODEL-BASED-RL/
 
 ---
 
-## 🧪 Algorithms
+## Algorithms
 
 ### ME-TRPO (Model-Ensemble Trust Region Policy Optimisation)
 
@@ -102,7 +102,7 @@ The simulation models the AWAKE electron transfer line (TT43) using:
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -137,9 +137,7 @@ python basic_spinning_up.py
 
 ---
 
-## 📊 Results
-
-### Simulation Results
+## Results
 
 | NAF on AWAKE Simulation | Deployed on the Real Machine |
 |:-:|:-:|
@@ -149,25 +147,7 @@ The ME-TRPO approach achieves successful trajectory correction within **~50 real
 
 ---
 
-## 📚 Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@inproceedings{hirlaender2020model,
-  title     = {Model-free and model-based policy learning for autonomous
-               beam trajectory steering at the {AWAKE} experiment},
-  author    = {Hirlaender, Simon and Bruchon, Niky},
-  booktitle = {Proceedings of the 11th International Particle Accelerator
-               Conference (IPAC'20)},
-  year      = {2020},
-  doi       = {10.18429/JACoW-IPAC2020-THPMK059}
-}
-```
-
----
-
-## 🤝 Acknowledgements
+## Acknowledgements
 
 - **CERN AWAKE Collaboration** — for providing access to the AWAKE electron beam line
 - [ME-TRPO](https://arxiv.org/abs/1802.10592) — Kurutach et al., 2018
@@ -177,6 +157,6 @@ If you use this code in your research, please cite:
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License — see the [LICENSE](pernaf/LICENSE) file for details.
